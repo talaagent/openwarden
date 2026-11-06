@@ -1,0 +1,177 @@
+//! Login URI matching, with Bitwarden's match types.
+//!
+//! | type | name        | matches when                                              |
+//! |------|-------------|-----------------------------------------------------------|
+//! | 0    | domain      | the base (registrable) domains are equal                  |
+//! | 1    | host        | the hosts and ports are equal                             |
+//! | 2    | starts with | the page URL starts with the login URI                    |
+//! | 3    | exact       | the page URL equals the login URI                         |
+//! | 4    | regex       | the login URI, as a case-insensitive regex, matches       |
+//! | 5    | never       | never                                                     |
+//!
+//! A login URI with no match type takes [`MatchOptions::default_match`]
+//! (domain, as in Bitwarden). The base domain comes from the public suffix
+//! list (`psl`): `login.example.co.uk` and `www.example.co.uk` share
+//! `example.co.uk`; IP addresses and single-label hosts (`localhost`) are
+//! their own base domain. A login URI without a scheme is read as
+//! `http://`, as Bitwarden does. Domain and host matching only consider
+//! `http` and `https` URLs, so an `androidapp://` URI never matches a page.
+//!
+//! Regex matching is off unless [`MatchOptions::allow_regex`] is set: a
+//! regex in a login URI is the vault's data, and with it off a regex URI
+//! never matches.
+
+use url::{Host, Url};
+
+/// A login URI's match type.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum UriMatch {
+    /// 0: the base domain.
+    Domain,
+    /// 1: the host and port.
+    Host,
+    /// 2: the page URL starts with the login URI.
+    StartsWith,
+    /// 3: the page URL equals the login URI.
+    Exact,
+    /// 4: the login URI is a regex over the page URL.
+    RegularExpression,
+    /// 5: never matches.
+    Never,
+}
+
+impl UriMatch {
+    /// From the wire's number; `None` for an unknown one.
+    pub fn from_wire(n: u8) -> Option<Self> {
+        Some(match n {
+            0 => Self::Domain,
+            1 => Self::Host,
+            2 => Self::StartsWith,
+            3 => Self::Exact,
+            4 => Self::RegularExpression,
+            5 => Self::Never,
+            _ => return None,
+        })
+    }
+
+    /// The wire's number.
+    pub fn to_wire(self) -> u8 {
+        match self {
+            Self::Domain => 0,
+            Self::Host => 1,
+            Self::StartsWith => 2,
+            Self::Exact => 3,
+            Self::RegularExpression => 4,
+            Self::Never => 5,
+        }
+    }
+}
+
+/// How [`Vault::find_logins`](crate::Vault::find_logins) matches.
+#[derive(Clone, Debug)]
+pub struct MatchOptions {
+    /// The match type for a login URI that has none (Bitwarden's default:
+    /// [`UriMatch::Domain`]).
+    pub default_match: UriMatch,
+    /// Whether regex login URIs are honoured (default `false`: they never
+    /// match).
+    pub allow_regex: bool,
+    /// Groups of base domains that count as one for domain matching
+    /// (Bitwarden's equivalent domains), e.g.
+    /// `[["example.com", "example.net"]]`.
+    pub equivalent_domains: Vec<Vec<String>>,
+}
+
+impl Default for MatchOptions {
+    fn default() -> Self {
+        Self {
+            default_match: UriMatch::Domain,
+            allow_regex: false,
+            equivalent_domains: Vec::new(),
+        }
+    }
+}
+
+/// The largest compiled regex allowed (bytes): a vault regex can't make a
+/// lookup expensive.
+const REGEX_SIZE_LIMIT: usize = 1 << 20;
+
+fn parse_web(uri: &str) -> Option<Url> {
+    let uri = uri.trim();
+    let url = if uri.contains("://") {
+        Url::parse(uri).ok()?
+    } else {
+        Url::parse(&format!("http://{uri}")).ok()?
+    };
+    matches!(url.scheme(), "http" | "https").then_some(url)
+}
+
+/// The base domain of a URL's host: the registrable domain for a name the
+/// public suffix list knows, else the host itself (IPs, `localhost`).
+fn base_domain(url: &Url) -> Option<String> {
+    match url.host()? {
+        Host::Ipv4(ip) => Some(ip.to_string()),
+        Host::Ipv6(ip) => Some(format!("[{ip}]")),
+        Host::Domain(d) => {
+            let d = d.trim_end_matches('.');
+            if !d.contains('.') {
+                return Some(d.to_owned());
+            }
+            Some(psl::domain_str(d).unwrap_or(d).to_owned())
+        }
+    }
+}
+
+fn host_port(url: &Url) -> Option<String> {
+    let host = url.host_str()?.trim_end_matches('.');
+    Some(match url.port() {
+        Some(p) => format!("{host}:{p}"),
+        None => host.to_owned(),
+    })
+}
+
+fn equivalent(a: &str, b: &str, opts: &MatchOptions) -> bool {
+    a == b
+        || opts.equivalent_domains.iter().any(|group| {
+            group.iter().any(|d| d.eq_ignore_ascii_case(a))
+                && group.iter().any(|d| d.eq_ignore_ascii_case(b))
+        })
+}
+
+/// Whether `login_uri` (with match type `match_type`, or the default)
+/// matches the page URL `page`.
+pub fn uri_matches(
+    login_uri: &str,
+    match_type: Option<UriMatch>,
+    page: &str,
+    opts: &MatchOptions,
+) -> bool {
+    match match_type.unwrap_or(opts.default_match) {
+        UriMatch::Domain => {
+            let (Some(l), Some(p)) = (parse_web(login_uri), parse_web(page)) else {
+                return false;
+            };
+            match (base_domain(&l), base_domain(&p)) {
+                (Some(l), Some(p)) => equivalent(&l, &p, opts),
+                _ => false,
+            }
+        }
+        UriMatch::Host => {
+            let (Some(l), Some(p)) = (parse_web(login_uri), parse_web(page)) else {
+                return false;
+            };
+            matches!((host_port(&l), host_port(&p)), (Some(l), Some(p)) if l == p)
+        }
+        UriMatch::StartsWith => !login_uri.is_empty() && page.starts_with(login_uri),
+        UriMatch::Exact => page == login_uri,
+        UriMatch::RegularExpression => {
+            opts.allow_regex
+                && regex::RegexBuilder::new(login_uri)
+                    .case_insensitive(true)
+                    .size_limit(REGEX_SIZE_LIMIT)
+                    .build()
+                    .is_ok_and(|re| re.is_match(page))
+        }
+        UriMatch::Never => false,
+    }
+}
