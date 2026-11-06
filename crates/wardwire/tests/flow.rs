@@ -140,6 +140,7 @@ fn session() -> Session {
         SecretString::from("test-token"),
         core::time::Duration::from_secs(3600),
     )
+    .unwrap()
 }
 
 fn reveal(s: Option<SecretString>) -> Option<String> {
@@ -495,7 +496,7 @@ async fn password_overwrite_needs_confirmation() {
     let err = vault
         .update_login(&client, &session, &id, new_password(), None)
         .await;
-    assert!(matches!(err, Err(Error::OverwriteRefused(_))));
+    assert!(matches!(err, Err(Error::UpdateRefused(_))));
     // A token for another item: refused.
     let other = vault.confirm_item(&CipherId::new(KEYED_ID)).unwrap();
     let err = vault
@@ -511,16 +512,14 @@ async fn password_overwrite_needs_confirmation() {
     assert!(matches!(err, Err(Error::ConfirmationMismatch(_))));
     assert!(server.received_requests().await.unwrap().is_empty());
 
-    // The same password again needs no token (nothing is overwritten).
+    // Even the same password again needs a token.
     let same = LoginUpdate {
         password: Some(SecretString::from(string(&kat, "password").0)),
         ..LoginUpdate::default()
     };
-    vault
-        .update_login(&client, &session, &id, same, None)
-        .await
-        .unwrap();
-    assert_eq!(server.received_requests().await.unwrap().len(), 1);
+    let err = vault.update_login(&client, &session, &id, same, None).await;
+    assert!(matches!(err, Err(Error::UpdateRefused(_))));
+    assert!(server.received_requests().await.unwrap().is_empty());
 
     // Confirmed: sent, with the old password in the history.
     vault.apply_sync(sync_data(&kat, REV2)).unwrap();
@@ -577,8 +576,11 @@ async fn update_without_password_and_add_uri() {
     let key = user_key(&kat);
     let server = MockServer::start().await;
     mount_put(&server, plain_cipher(&kat, REV2)).await;
+    let client = client(&server);
+    let session = session();
     let mut vault = unlocked(&kat);
-    let update = LoginUpdate {
+    let id = CipherId::new(PLAIN_ID);
+    let update = || LoginUpdate {
         username: Some(SecretString::from("new-user")),
         add_uris: vec![(
             SecretString::from("https://new.example.com"),
@@ -586,14 +588,18 @@ async fn update_without_password_and_add_uri() {
         )],
         ..LoginUpdate::default()
     };
+
+    // No token: refused, nothing sent.
+    let err = vault
+        .update_login(&client, &session, &id, update(), None)
+        .await;
+    assert!(matches!(err, Err(Error::UpdateRefused(_))));
+    assert!(server.received_requests().await.unwrap().is_empty());
+
+    // Confirmed: sent.
+    let token = vault.confirm_item(&id).unwrap();
     vault
-        .update_login(
-            &client(&server),
-            &session(),
-            &CipherId::new(PLAIN_ID),
-            update,
-            None,
-        )
+        .update_login(&client, &session, &id, update(), Some(token))
         .await
         .unwrap();
     let body = last_body(&server).await;
@@ -608,6 +614,167 @@ async fn update_without_password_and_add_uri() {
         "q3twREOdFEdlkMD6uWPpxUPTaiAqmRKcR36KRuJ/XDA="
     );
     assert!(body["passwordHistory"].is_null());
+}
+
+#[tokio::test]
+async fn every_change_needs_confirmation() {
+    let kat = kat();
+    let server = MockServer::start().await;
+    mount_put(&server, plain_cipher(&kat, REV2)).await;
+    let client = client(&server);
+    let session = session();
+    let mut vault = unlocked(&kat);
+    let id = CipherId::new(PLAIN_ID);
+    let secret = |v: &str| Some(SecretString::from(v.to_owned()));
+    let changes = [
+        (
+            "uri",
+            LoginUpdate {
+                add_uris: vec![(SecretString::from("https://evil.example"), None)],
+                ..LoginUpdate::default()
+            },
+        ),
+        (
+            "totp",
+            LoginUpdate {
+                totp: secret("GEZDGNBVGY3TQOJQ"),
+                ..LoginUpdate::default()
+            },
+        ),
+        (
+            "username",
+            LoginUpdate {
+                username: secret("someone-else"),
+                ..LoginUpdate::default()
+            },
+        ),
+        (
+            "name",
+            LoginUpdate {
+                name: secret("renamed"),
+                ..LoginUpdate::default()
+            },
+        ),
+        ("nothing", LoginUpdate::default()),
+    ];
+    for (what, update) in changes {
+        let err = vault
+            .update_login(&client, &session, &id, update, None)
+            .await;
+        assert!(matches!(err, Err(Error::UpdateRefused(_))), "{what}");
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+    // The refused URI didn't make the item match the attacker's page.
+    assert_eq!(
+        vault
+            .find_logins("https://evil.example/", &MatchOptions::default())
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_ne!(
+        reveal(vault.totp_secret(&id).unwrap()).as_deref(),
+        Some("GEZDGNBVGY3TQOJQ")
+    );
+
+    // A TOTP change, confirmed, goes through.
+    let token = vault.confirm_item(&id).unwrap();
+    vault
+        .update_login(
+            &client,
+            &session,
+            &id,
+            LoginUpdate {
+                totp: secret("GEZDGNBVGY3TQOJQ"),
+                ..LoginUpdate::default()
+            },
+            Some(token),
+        )
+        .await
+        .unwrap();
+    let body = last_body(&server).await;
+    assert_eq!(
+        dec(&body["login"]["totp"], &user_key(&kat)),
+        "GEZDGNBVGY3TQOJQ"
+    );
+}
+
+#[tokio::test]
+async fn oversized_body_is_refused() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/sync"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("x".repeat(4096)))
+        .mount(&server)
+        .await;
+    let err = client(&server)
+        .with_max_body_size(1024)
+        .sync(&session())
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err,
+        Error::BodyTooLarge {
+            endpoint: "sync",
+            limit: 1024
+        }
+    ));
+}
+
+#[tokio::test]
+async fn oversized_chunked_body_is_refused() {
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    // No Content-Length: the cap applies while reading.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.unwrap();
+        let mut buf = [0u8; 4096];
+        let _ = sock.read(&mut buf).await.unwrap();
+        let chunk = "x".repeat(1024);
+        let resp = format!(
+            "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n400\r\n{chunk}\r\n400\r\n{chunk}\r\n0\r\n\r\n"
+        );
+        sock.write_all(resp.as_bytes()).await.unwrap();
+    });
+    let client = Client::new(
+        ServerUrls::self_hosted(&format!("http://{addr}")).unwrap(),
+        device(),
+    )
+    .unwrap()
+    .with_max_body_size(1500);
+    let err = client.sync(&session()).await.unwrap_err();
+    assert!(matches!(
+        err,
+        Error::BodyTooLarge {
+            endpoint: "sync",
+            limit: 1500
+        }
+    ));
+}
+
+#[tokio::test]
+async fn huge_expires_in_is_an_error() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/identity/connect/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "tok", "expires_in": u64::MAX, "token_type": "Bearer",
+        })))
+        .mount(&server)
+        .await;
+    let err = client(&server)
+        .login_api_key(&ApiKey {
+            client_id: "user.abc".into(),
+            client_secret: SecretString::from("s3cret"),
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(err, Error::InvalidExpiry));
+    assert!(matches!(
+        Session::from_token(SecretString::from("t"), core::time::Duration::MAX),
+        Err(Error::InvalidExpiry)
+    ));
 }
 
 #[tokio::test]

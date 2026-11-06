@@ -146,7 +146,9 @@ impl Session {
     /// Whether the token has expired, or will within a minute: log in
     /// again.
     pub fn is_expired(&self) -> bool {
-        Instant::now() + Duration::from_secs(60) >= self.expires_at
+        Instant::now()
+            .checked_add(Duration::from_secs(60))
+            .is_none_or(|soon| soon >= self.expires_at)
     }
 
     /// The account's KDF, if the token response gave it.
@@ -161,14 +163,26 @@ impl Session {
 
     /// A session from a token directly (tests, or a token obtained
     /// elsewhere).
-    pub fn from_token(access_token: SecretString, expires_in: Duration) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidExpiry`] if `expires_in` is too large.
+    pub fn from_token(access_token: SecretString, expires_in: Duration) -> Result<Self> {
+        Ok(Self {
             access_token,
-            expires_at: Instant::now() + expires_in,
+            expires_at: expires_at(expires_in)?,
             protected_key: None,
             kdf: None,
-        }
+        })
     }
+}
+
+/// Now plus `expires_in`; an error, never a panic, past what `Instant`
+/// can hold.
+fn expires_at(expires_in: Duration) -> Result<Instant> {
+    Instant::now()
+        .checked_add(expires_in)
+        .ok_or(Error::InvalidExpiry)
 }
 
 #[derive(Deserialize)]
@@ -291,6 +305,7 @@ pub struct Client {
     http: reqwest::Client,
     urls: ServerUrls,
     device: Device,
+    max_body: usize,
 }
 
 impl fmt::Debug for Client {
@@ -298,13 +313,18 @@ impl fmt::Debug for Client {
         f.debug_struct("Client")
             .field("urls", &self.urls)
             .field("device", &self.device)
+            .field("max_body", &self.max_body)
             .finish_non_exhaustive()
     }
 }
 
 impl Client {
-    /// A client with its own HTTP client: rustls, a 30-second timeout and
-    /// no redirects.
+    /// The default cap on a response body: 32 MiB.
+    pub const DEFAULT_MAX_BODY_SIZE: usize = 32 * 1024 * 1024;
+
+    /// A client with its own HTTP client: rustls, a 30-second timeout, no
+    /// redirects, and response bodies capped at
+    /// [`DEFAULT_MAX_BODY_SIZE`](Self::DEFAULT_MAX_BODY_SIZE).
     ///
     /// # Errors
     ///
@@ -322,7 +342,20 @@ impl Client {
     /// A client over a caller-built HTTP client. Turn redirects off on it:
     /// the bearer token goes with every API call.
     pub fn with_http(http: reqwest::Client, urls: ServerUrls, device: Device) -> Self {
-        Self { http, urls, device }
+        Self {
+            http,
+            urls,
+            device,
+            max_body: Self::DEFAULT_MAX_BODY_SIZE,
+        }
+    }
+
+    /// Caps response bodies at `bytes`: a larger one is an
+    /// [`Error::BodyTooLarge`]. A big vault's sync needs room.
+    #[must_use]
+    pub fn with_max_body_size(mut self, bytes: usize) -> Self {
+        self.max_body = bytes;
+        self
     }
 
     /// The account's KDF, from `/identity/accounts/prelogin`. Check it
@@ -370,7 +403,7 @@ impl Client {
         tracing::debug!("wardwire: logged in with an API key");
         Ok(Session {
             access_token: w.access_token,
-            expires_at: Instant::now() + Duration::from_secs(w.expires_in),
+            expires_at: expires_at(Duration::from_secs(w.expires_in))?,
             protected_key: w.key,
             kdf,
         })
@@ -427,13 +460,41 @@ impl Client {
         endpoint: &'static str,
         req: reqwest::RequestBuilder,
     ) -> Result<Zeroizing<Vec<u8>>> {
-        let resp = req
+        let mut resp = req
             .header("Device-Type", self.device.device_type.to_string())
             .send()
             .await
             .map_err(|e| Error::http(endpoint, e))?;
         let status = resp.status();
-        let body = resp.bytes().await.map_err(|e| Error::http(endpoint, e))?;
+        let too_large = Error::BodyTooLarge {
+            endpoint,
+            limit: self.max_body,
+        };
+        if resp
+            .content_length()
+            .is_some_and(|n| usize::try_from(n).map_or(true, |n| n > self.max_body))
+        {
+            return Err(too_large);
+        }
+        // Read chunk by chunk into a buffer that is wiped on drop (`Bytes`
+        // can't be), stopping at the cap.
+        let mut body = Zeroizing::new(Vec::new());
+        while let Some(chunk) = resp.chunk().await.map_err(|e| Error::http(endpoint, e))? {
+            if chunk.len() > self.max_body - body.len() {
+                return Err(too_large);
+            }
+            if body.capacity() - body.len() < chunk.len() {
+                // Grow by hand so no unwiped copy is left behind.
+                let mut bigger = Zeroizing::new(Vec::with_capacity(
+                    (body.len() + chunk.len())
+                        .max(body.capacity() * 2)
+                        .min(self.max_body),
+                ));
+                bigger.extend_from_slice(&body);
+                body = bigger;
+            }
+            body.extend_from_slice(&chunk);
+        }
         if !status.is_success() {
             let oauth_error = serde_json::from_slice::<OauthErrorWire>(&body)
                 .ok()
@@ -447,8 +508,7 @@ impl Client {
                 oauth_error,
             });
         }
-        // `Bytes` can't be wiped in place: copy into a buffer that is.
-        Ok(Zeroizing::new(body.to_vec()))
+        Ok(body)
     }
 
     async fn send<T: DeserializeOwned>(

@@ -110,7 +110,9 @@ impl UserKey {
 
     /// Its 64 bytes, for the caller to seal (never store them in clear).
     pub fn export(&self) -> SecretBox<[u8; 64]> {
-        SecretBox::new(Box::new(*self.0.to_bytes()))
+        let mut out = Box::new([0u8; 64]);
+        out.copy_from_slice(self.0.to_bytes().as_ref());
+        SecretBox::new(out)
     }
 
     pub(crate) fn symmetric(&self) -> &SymmetricKey {
@@ -162,8 +164,8 @@ impl fmt::Debug for LoginUri {
     }
 }
 
-/// Proof that the caller had an item confirmed (by the user) for an
-/// overwrite: from [`Vault::confirm_item`], bound to the item's id and
+/// Proof that the caller had an item confirmed (by the user) for a
+/// change: from [`Vault::confirm_item`], bound to the item's id and
 /// revision, and used up by [`Vault::update_login`].
 #[derive(Debug)]
 pub struct ConfirmedItem {
@@ -203,15 +205,15 @@ impl fmt::Debug for LoginDraft {
     }
 }
 
-/// Changes to a login: each `Some` field replaces the item's.
+/// Changes to a login: each `Some` field replaces the item's. Any update
+/// needs a [`ConfirmedItem`].
 #[derive(Default)]
 pub struct LoginUpdate {
     /// A new name.
     pub name: Option<SecretString>,
     /// A new username.
     pub username: Option<SecretString>,
-    /// A new password. Replacing an existing, non-empty password needs a
-    /// [`ConfirmedItem`]; the old one goes to the password history.
+    /// A new password; a replaced one goes to the password history.
     pub password: Option<SecretString>,
     /// A new TOTP secret.
     pub totp: Option<SecretString>,
@@ -715,8 +717,8 @@ impl Vault {
         }
     }
 
-    /// Marks an item as confirmed (by the user, out of band) for an
-    /// overwrite of its password. The token holds the item's current
+    /// Marks an item as confirmed (by the user, out of band) for one
+    /// [`update_login`](Self::update_login). The token holds the item's current
     /// revision: if the item changes before the update, it no longer
     /// matches.
     ///
@@ -780,15 +782,16 @@ impl Vault {
         Ok(id)
     }
 
-    /// Updates a login. Setting a password over an existing, non-empty one
-    /// needs `confirmed`, from [`confirm_item`](Self::confirm_item) for
-    /// this item at its current revision; the old password goes to the
+    /// Updates a login. Every update needs `confirmed`, from
+    /// [`confirm_item`](Self::confirm_item) for this item at its current
+    /// revision, whatever it changes (name, username, password, TOTP or
+    /// URIs); without one nothing is sent. A replaced password goes to the
     /// item's password history. Fields wardwire doesn't model are sent back
     /// as they came.
     ///
     /// # Errors
     ///
-    /// [`Error::OverwriteRefused`] without a confirmation,
+    /// [`Error::UpdateRefused`] without a confirmation,
     /// [`Error::ConfirmationMismatch`] with one for another item or
     /// revision, [`Error::Locked`], [`Error::NotFound`],
     /// [`Error::NotALogin`], and the client's errors.
@@ -825,19 +828,22 @@ impl Vault {
         let c = self.cipher(id)?;
         let login = c.login()?;
         let key = c.item_key(self.user_key()?)?;
+        // Every change to an existing item needs the user's confirmation:
+        // a new URI or TOTP secret is as dangerous as a new password (an
+        // added URI makes the item match, and fill, another site).
+        match confirmed {
+            None => return Err(Error::UpdateRefused(id.clone())),
+            Some(t) if t.id != *id || t.revision != c.revision => {
+                return Err(Error::ConfirmationMismatch(id.clone()));
+            }
+            Some(_) => {}
+        }
         let old_password =
             decrypt_opt(login.password.as_ref(), &key)?.filter(|p| !p.expose_secret().is_empty());
         let mut history_entry = None;
         if let (Some(new), Some(old)) = (&update.password, &old_password)
             && new.expose_secret() != old.expose_secret()
         {
-            match confirmed {
-                None => return Err(Error::OverwriteRefused(id.clone())),
-                Some(t) if t.id != *id || t.revision != c.revision => {
-                    return Err(Error::ConfirmationMismatch(id.clone()));
-                }
-                Some(_) => {}
-            }
             history_entry = Some(json!({
                 "password": encrypt_str(old, &key)?,
                 "lastUsedDate": rfc3339_now(),

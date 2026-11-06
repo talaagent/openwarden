@@ -51,6 +51,18 @@ pub enum Error {
         /// when the body had a well-formed one.
         oauth_error: Option<String>,
     },
+    /// A response body was larger than the client's limit
+    /// ([`Client::with_max_body_size`](crate::Client::with_max_body_size)).
+    #[error("{endpoint} response larger than {limit} bytes")]
+    BodyTooLarge {
+        /// Which call's body.
+        endpoint: &'static str,
+        /// The limit, in bytes.
+        limit: usize,
+    },
+    /// A token lifetime too large to represent as a point in time.
+    #[error("token lifetime out of range")]
+    InvalidExpiry,
     /// A response body didn't parse. Only its position is kept: serde's
     /// own message can quote the body.
     #[error("malformed {endpoint} response at line {line}, column {column}")]
@@ -100,10 +112,10 @@ pub enum Error {
     /// The item is not a login.
     #[error("item {0} is not a login")]
     NotALogin(CipherId),
-    /// The update would overwrite the item's existing password and no
-    /// matching [`ConfirmedItem`](crate::ConfirmedItem) was given.
-    #[error("refusing to overwrite the password of item {0} without a confirmation")]
-    OverwriteRefused(CipherId),
+    /// An update to an existing item came without a
+    /// [`ConfirmedItem`](crate::ConfirmedItem).
+    #[error("refusing to change item {0} without a confirmation")]
+    UpdateRefused(CipherId),
     /// The [`ConfirmedItem`](crate::ConfirmedItem) is for another item, or the
     /// item changed since it was confirmed.
     #[error("confirmation does not match item {0} (another item, or it changed)")]
