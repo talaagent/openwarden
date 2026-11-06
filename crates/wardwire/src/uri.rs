@@ -4,7 +4,7 @@
 //! |------|-------------|-----------------------------------------------------------|
 //! | 0    | domain      | the base (registrable) domains are equal                  |
 //! | 1    | host        | the hosts and ports are equal                             |
-//! | 2    | starts with | the page URL starts with the login URI                    |
+//! | 2    | starts with | the page URL starts with the login URI, at a boundary     |
 //! | 3    | exact       | the page URL equals the login URI                         |
 //! | 4    | regex       | the login URI, as a case-insensitive regex, matches       |
 //! | 5    | never       | never                                                     |
@@ -16,6 +16,16 @@
 //! their own base domain. A login URI without a scheme is read as
 //! `http://`, as Bitwarden does. Domain and host matching only consider
 //! `http` and `https` URLs, so an `androidapp://` URI never matches a page.
+//! With [`MatchOptions::strict_scheme`] (the default), an `https` login URI
+//! never matches an `http` page by domain or host: a password saved for
+//! the secure site isn't offered to a plain-text one. (An `http` login URI
+//! still matches an `https` page.)
+//!
+//! Starts-with needs a boundary: the page must equal the login URI, or the
+//! login URI must end in `/`, `?`, `#` or `&`, or the page's next character
+//! must be `/`, `?`, `#` or `:`. So `https://bank.com` matches
+//! `https://bank.com/login` but not `https://bank.com.evil.net/`. (This is
+//! stricter than Bitwarden.)
 //!
 //! Regex matching is off unless [`MatchOptions::allow_regex`] is set: a
 //! regex in a login URI is the vault's data, and with it off a regex URI
@@ -80,6 +90,9 @@ pub struct MatchOptions {
     /// (Bitwarden's equivalent domains), e.g.
     /// `[["example.com", "example.net"]]`.
     pub equivalent_domains: Vec<Vec<String>>,
+    /// Whether an `https` login URI is kept from `http` pages for domain
+    /// and host matching (default `true`).
+    pub strict_scheme: bool,
 }
 
 impl Default for MatchOptions {
@@ -88,6 +101,7 @@ impl Default for MatchOptions {
             default_match: UriMatch::Domain,
             allow_regex: false,
             equivalent_domains: Vec::new(),
+            strict_scheme: true,
         }
     }
 }
@@ -130,6 +144,24 @@ fn host_port(url: &Url) -> Option<String> {
     })
 }
 
+/// Whether the page's scheme is acceptable for the login's.
+fn scheme_ok(login: &Url, page: &Url, opts: &MatchOptions) -> bool {
+    !opts.strict_scheme || login.scheme() != "https" || page.scheme() == "https"
+}
+
+/// Starts-with, at a boundary (see the module docs).
+fn starts_with_at_boundary(login_uri: &str, page: &str) -> bool {
+    if login_uri.is_empty() {
+        return false;
+    }
+    let Some(rest) = page.strip_prefix(login_uri) else {
+        return false;
+    };
+    rest.is_empty()
+        || login_uri.ends_with(['/', '?', '#', '&'])
+        || rest.starts_with(['/', '?', '#', ':'])
+}
+
 fn equivalent(a: &str, b: &str, opts: &MatchOptions) -> bool {
     a == b
         || opts.equivalent_domains.iter().any(|group| {
@@ -151,6 +183,9 @@ pub fn uri_matches(
             let (Some(l), Some(p)) = (parse_web(login_uri), parse_web(page)) else {
                 return false;
             };
+            if !scheme_ok(&l, &p, opts) {
+                return false;
+            }
             match (base_domain(&l), base_domain(&p)) {
                 (Some(l), Some(p)) => equivalent(&l, &p, opts),
                 _ => false,
@@ -160,9 +195,10 @@ pub fn uri_matches(
             let (Some(l), Some(p)) = (parse_web(login_uri), parse_web(page)) else {
                 return false;
             };
-            matches!((host_port(&l), host_port(&p)), (Some(l), Some(p)) if l == p)
+            scheme_ok(&l, &p, opts)
+                && matches!((host_port(&l), host_port(&p)), (Some(l), Some(p)) if l == p)
         }
-        UriMatch::StartsWith => !login_uri.is_empty() && page.starts_with(login_uri),
+        UriMatch::StartsWith => starts_with_at_boundary(login_uri, page),
         UriMatch::Exact => page == login_uri,
         UriMatch::RegularExpression => {
             opts.allow_regex

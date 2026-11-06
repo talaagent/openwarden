@@ -49,6 +49,12 @@ fn domain() {
                 "https://example.com",
                 Some(Domain),
                 "http://example.com",
+                false,
+            ),
+            (
+                "http://example.com",
+                Some(Domain),
+                "https://example.com",
                 true,
             ),
             (
@@ -208,6 +214,12 @@ fn host() {
                 "https://example.com",
                 Some(Host),
                 "http://example.com",
+                false,
+            ),
+            (
+                "http://example.com",
+                Some(Host),
+                "https://example.com",
                 true,
             ),
             (
@@ -260,6 +272,54 @@ fn starts_with() {
                 "https://example.com",
                 Some(StartsWith),
                 "https://example.com.evil.net",
+                false,
+            ),
+            (
+                "https://example.com",
+                Some(StartsWith),
+                "https://example.com",
+                true,
+            ),
+            (
+                "https://example.com",
+                Some(StartsWith),
+                "https://example.com/login",
+                true,
+            ),
+            (
+                "https://example.com",
+                Some(StartsWith),
+                "https://example.com:8443/",
+                true,
+            ),
+            (
+                "https://example.com/app",
+                Some(StartsWith),
+                "https://example.com/app?next=1",
+                true,
+            ),
+            (
+                "https://example.com/app",
+                Some(StartsWith),
+                "https://example.com/app#top",
+                true,
+            ),
+            (
+                "https://example.com/app",
+                Some(StartsWith),
+                "https://example.com/application",
+                false,
+            ),
+            (
+                "https://example.com/",
+                Some(StartsWith),
+                "https://example.com/anything",
+                true,
+            ),
+            (
+                "https://example.com/search?",
+                Some(StartsWith),
+                "https://example.com/search?q=1",
                 true,
             ),
             (
@@ -367,4 +427,36 @@ fn wire_numbers() {
         assert_eq!(m.to_wire(), n);
     }
     assert_eq!(UriMatch::from_wire(6), None);
+}
+
+#[test]
+fn lax_scheme_lets_https_logins_match_http_pages() {
+    let lax = MatchOptions {
+        strict_scheme: false,
+        ..MatchOptions::default()
+    };
+    check(
+        &[
+            (
+                "https://example.com",
+                Some(Domain),
+                "http://example.com",
+                true,
+            ),
+            (
+                "https://example.com",
+                Some(Host),
+                "http://example.com",
+                true,
+            ),
+            // Starts-with and exact compare the whole URL, scheme included.
+            (
+                "https://example.com",
+                Some(StartsWith),
+                "http://example.com/",
+                false,
+            ),
+        ],
+        &lax,
+    );
 }
