@@ -87,13 +87,17 @@ master password.
   supported.
 - **URI matching**: Bitwarden's base domain (public suffix list), host,
   starts with, exact, regular expression (off unless `allow_regex`) and
-  never, with caller-supplied equivalent domains.
+  never, with caller-supplied equivalent domains. Stricter than Bitwarden
+  by default: an `https` login doesn't match an `http` page
+  (`strict_scheme`), and starts-with needs a boundary (`https://bank.com`
+  doesn't match `https://bank.com.evil.net`).
 - **TOTP**: `otpauth://` (SHA-1/256/512, digits, period), `steam://` and
   bare base32.
-- **Writes**: create a login; update one. Replacing an existing password
-  needs a `ConfirmedItem` from `Vault::confirm_item`, bound to the item and
-  its revision; the old password goes to the item's history, and fields
-  wardwire doesn't model are sent back unchanged.
+- **Writes**: create a login; update one. Every update (name, username,
+  password, TOTP, URIs) needs a `ConfirmedItem` from `Vault::confirm_item`,
+  bound to the item and its revision; a replaced password goes to the
+  item's history, and fields wardwire doesn't model are sent back
+  unchanged.
 
 ## Security
 
@@ -105,6 +109,12 @@ master password.
 - Logging (`tracing`, debug level) carries item ids only, never names,
   usernames, URIs or secrets. Errors carry no server body text.
 - HTTPS (rustls) only, except to loopback addresses; no redirects.
+  Response bodies are capped (32 MiB by default,
+  `Client::with_max_body_size`).
+- The server is trusted to keep each field with its item: Bitwarden's
+  encrypted fields aren't bound to their item, so a hostile server could
+  move one item's password into another item with its own URI. Use a
+  server you trust.
 
 ## Tests
 

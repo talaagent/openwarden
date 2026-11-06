@@ -45,6 +45,18 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! # What the server is trusted with
+//!
+//! The server can't read the vault, but it is trusted to keep each field
+//! with its item. Bitwarden's encrypted fields are not bound to the item or
+//! field they belong to: every field of a personal item is encrypted under
+//! the same key, so a hostile server can move one item's password into
+//! another item that carries the server's own URI, and it will decrypt and
+//! match there. wardwire can't detect that. A caller that fills passwords
+//! into pages should treat the server as trusted for item binding (run your
+//! own, over a trusted transport), and confirm with the user before any
+//! [`Vault::update_login`] (every one needs a [`ConfirmedItem`]).
 
 extern crate alloc;
 
