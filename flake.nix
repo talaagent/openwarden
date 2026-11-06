@@ -31,6 +31,9 @@
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;
+          # The tests build real HTTP clients (against a local mock
+          # server); rustls' platform verifier wants a CA store to exist.
+          SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
           meta = {
             description = "Async client for the Bitwarden and Vaultwarden API";
             license = pkgs.lib.licenses.asl20;
@@ -56,6 +59,7 @@
             # scripts/gen-fixtures.sh: the reference implementation the
             # known-answer fixtures are built with.
             pkgs.openssl
+            pkgs.xxd
           ];
           RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
         };
