@@ -22,10 +22,15 @@
 //! still matches an `https` page.)
 //!
 //! Starts-with needs a boundary: the page must equal the login URI, or the
-//! login URI must end in `/`, `?`, `#` or `&`, or the page's next character
-//! must be `/`, `?`, `#` or `:`. So `https://bank.com` matches
-//! `https://bank.com/login` but not `https://bank.com.evil.net/`. (This is
-//! stricter than Bitwarden.)
+//! login URI must end in `/`, `?`, `#` or `&`, or the rest of the page must
+//! start with `/`, `?` or `#`, or with `:` and a port number (digits, then
+//! the end or `/`, `?`, `#`). So `https://bank.com` matches
+//! `https://bank.com/login` and `https://bank.com:8443/`, but not
+//! `https://bank.com.evil.net/`. (This is stricter than Bitwarden.)
+//!
+//! A page URL with userinfo (`https://bank.com:x@evil.net/`, whose host is
+//! `evil.net`) never matches, in any mode: it is a classic way to make a URL
+//! look like another site's.
 //!
 //! Regex matching is off unless [`MatchOptions::allow_regex`] is set: a
 //! regex in a login URI is the vault's data, and with it off a regex URI
@@ -159,7 +164,31 @@ fn starts_with_at_boundary(login_uri: &str, page: &str) -> bool {
     };
     rest.is_empty()
         || login_uri.ends_with(['/', '?', '#', '&'])
-        || rest.starts_with(['/', '?', '#', ':'])
+        || rest.starts_with(['/', '?', '#'])
+        || rest.strip_prefix(':').is_some_and(starts_with_port)
+}
+
+/// Whether `s` is a port number, then the end or `/`, `?`, `#`.
+fn starts_with_port(s: &str) -> bool {
+    let digits = s.bytes().take_while(u8::is_ascii_digit).count();
+    digits > 0 && (digits == s.len() || s[digits..].starts_with(['/', '?', '#']))
+}
+
+/// Whether a page URL carries userinfo (`user:pass@`), by the parser's
+/// reading or, for what doesn't parse, by an `@` in its authority.
+fn has_userinfo(page: &str) -> bool {
+    let page = page.trim();
+    if let Ok(url) = Url::parse(page)
+        && (!url.username().is_empty() || url.password().is_some())
+    {
+        return true;
+    }
+    let after_scheme = page.split_once("://").map_or(page, |(_, rest)| rest);
+    let authority = after_scheme
+        .split(['/', '\\', '?', '#'])
+        .next()
+        .unwrap_or_default();
+    authority.contains('@')
 }
 
 fn equivalent(a: &str, b: &str, opts: &MatchOptions) -> bool {
@@ -171,13 +200,16 @@ fn equivalent(a: &str, b: &str, opts: &MatchOptions) -> bool {
 }
 
 /// Whether `login_uri` (with match type `match_type`, or the default)
-/// matches the page URL `page`.
+/// matches the page URL `page`. A page with userinfo never matches.
 pub fn uri_matches(
     login_uri: &str,
     match_type: Option<UriMatch>,
     page: &str,
     opts: &MatchOptions,
 ) -> bool {
+    if has_userinfo(page) {
+        return false;
+    }
     match match_type.unwrap_or(opts.default_match) {
         UriMatch::Domain => {
             let (Some(l), Some(p)) = (parse_web(login_uri), parse_web(page)) else {

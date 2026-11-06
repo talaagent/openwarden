@@ -293,6 +293,37 @@ fn starts_with() {
                 true,
             ),
             (
+                "https://example.com",
+                Some(StartsWith),
+                "https://example.com:8443",
+                true,
+            ),
+            (
+                "https://example.com",
+                Some(StartsWith),
+                "https://example.com:8443?x=1",
+                true,
+            ),
+            // A `:` that doesn't start a port is no boundary.
+            (
+                "https://example.com",
+                Some(StartsWith),
+                "https://example.com:x@evil.net/",
+                false,
+            ),
+            (
+                "https://example.com",
+                Some(StartsWith),
+                "https://example.com:8443@evil.net/",
+                false,
+            ),
+            (
+                "https://example.com",
+                Some(StartsWith),
+                "https://example.com:/",
+                false,
+            ),
+            (
                 "https://example.com/app",
                 Some(StartsWith),
                 "https://example.com/app?next=1",
@@ -459,4 +490,41 @@ fn lax_scheme_lets_https_logins_match_http_pages() {
         ],
         &lax,
     );
+}
+
+#[test]
+fn pages_with_userinfo_never_match() {
+    let regex = MatchOptions {
+        allow_regex: true,
+        ..MatchOptions::default()
+    };
+    let pages = [
+        "https://example.com:x@evil.net/",
+        "https://example.com@evil.net/",
+        "https://user:pass@example.com/",
+        "https://user@example.com/login",
+    ];
+    for page in pages {
+        for m in [Domain, Host, StartsWith, Exact, RegularExpression] {
+            for login in ["https://example.com", page, ".*"] {
+                assert!(
+                    !uri_matches(login, Some(m), page, &regex),
+                    "{login:?} {m:?} vs {page:?}"
+                );
+            }
+        }
+    }
+    // The same pages without userinfo still match.
+    assert!(uri_matches(
+        "https://example.com",
+        Some(Domain),
+        "https://example.com/",
+        &regex
+    ));
+    assert!(uri_matches(
+        ".*",
+        Some(RegularExpression),
+        "https://example.com/",
+        &regex
+    ));
 }
