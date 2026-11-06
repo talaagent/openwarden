@@ -1,0 +1,35 @@
+[workspace]
+resolver = "3"
+members = ["crates/wardwire"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/talaagent/wardwire"
+authors = ["Ian Macalinao <github@igm.pub>"]
+rust-version = "1.88"
+
+[workspace.dependencies]
+wardwire = { path = "crates/wardwire", version = "0.1.0" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+complexity = { level = "deny", priority = -1 }
+must_use_candidate = "allow"
+module_name_repetitions = "allow"
+needless_pass_by_value = "allow"
+unwrap_used = "deny"
+std_instead_of_alloc = "deny"
+std_instead_of_core = "deny"
+cognitive_complexity = "deny"
+too_many_lines = "deny"
+clone_on_ref_ptr = "deny"
+await_holding_lock = "deny"
+disallowed_methods = "deny"
+disallowed_types = "deny"
+large_futures = "allow"

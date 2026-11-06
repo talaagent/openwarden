@@ -1,0 +1,17 @@
+[package]
+name = "wardwire"
+description = "An async client for the Bitwarden and Vaultwarden API: login, sync, decryption and URI matching"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+keywords = ["bitwarden", "vaultwarden", "password-manager", "client"]
+categories = ["api-bindings", "cryptography"]
+
+[dependencies]
+
+[lints]
+workspace = true
