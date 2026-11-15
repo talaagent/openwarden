@@ -344,6 +344,10 @@ fn lazy_decryption() {
         Err(Error::NotALogin(_))
     ));
     assert!(!format!("{vault:?}").contains(string(&kat, "name").0));
+    // The protected key would allow offline guessing of the master password.
+    let protected = &vault.key_state().protected_key;
+    assert_eq!(protected, s(&kat, "protected_key"));
+    assert!(!format!("{:?}", vault.key_state()).contains(protected.as_str()));
 }
 
 #[test]

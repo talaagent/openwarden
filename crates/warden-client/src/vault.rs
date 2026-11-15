@@ -122,12 +122,24 @@ impl UserKey {
 
 /// What the user key was unlocked from: kept beside a sealed user key so a
 /// later sync can tell whether it is still valid.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Its `Debug` leaves out the protected key: with it, the master password
+/// can be guessed offline.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyState {
     /// The protected symmetric key (`profile.key`), an `EncString`.
     pub protected_key: String,
     /// The account's KDF when unlocked, if known.
     pub kdf: Option<Kdf>,
+}
+
+impl fmt::Debug for KeyState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("KeyState")
+            .field("protected_key", &"[redacted]")
+            .field("kdf", &self.kdf)
+            .finish()
+    }
 }
 
 /// A login's metadata: nothing encrypted, nothing secret.
