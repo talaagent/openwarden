@@ -1,18 +1,18 @@
 [workspace]
 resolver = "3"
-members = ["crates/warden-client"]
+members = ["crates/openwarden"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/talaagent/warden-client"
-homepage = "https://github.com/talaagent/warden-client"
+repository = "https://github.com/talaagent/openwarden"
+homepage = "https://github.com/talaagent/openwarden"
 authors = ["Ian Macalinao <github@igm.pub>"]
 rust-version = "1.88"
 
 [workspace.dependencies]
-warden-client = { path = "crates/warden-client", version = "0.1.0" }
+openwarden = { path = "crates/openwarden", version = "0.1.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

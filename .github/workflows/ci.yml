@@ -141,4 +141,4 @@ jobs:
       - run: nix develop --command cargo nextest --version
       # The known-answer fixtures, regenerated with OpenSSL (deterministic),
       # must match the committed ones.
-      - run: nix develop --command bash scripts/gen-fixtures.sh | diff -u crates/warden-client/tests/fixtures/kat.json -
+      - run: nix develop --command bash scripts/gen-fixtures.sh | diff -u crates/openwarden/tests/fixtures/kat.json -

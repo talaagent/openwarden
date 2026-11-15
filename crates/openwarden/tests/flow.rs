@@ -13,12 +13,12 @@
 mod common;
 
 use common::{bytes, kat, s, string};
-use serde_json::{Value, json};
-use warden_client::{
+use openwarden::{
     ApiKey, CipherId, Client, Device, EncString, Error, ExposeSecret, FolderId, Kdf, KeyChange,
     LoginDraft, LoginUpdate, MasterKey, MatchOptions, SecretString, ServerUrls, Session,
     SymmetricKey, SyncData, UriMatch, UserKey, Vault,
 };
+use serde_json::{Value, json};
 use wiremock::matchers::{body_string_contains, header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -34,7 +34,7 @@ const REV2: &str = "2026-02-03T04:05:06.000Z";
 fn device() -> Device {
     Device {
         identifier: "00000000-0000-4000-8000-00000000d001".into(),
-        name: "warden-client-test".into(),
+        name: "openwarden-test".into(),
         device_type: Device::LINUX_CLI,
     }
 }
@@ -546,7 +546,7 @@ async fn password_overwrite_needs_confirmation() {
             .ends_with('Z')
     );
     assert_eq!(body["lastKnownRevisionDate"], REV2);
-    // Fields warden-client doesn't model go back as they came; response-only ones don't.
+    // Fields openwarden doesn't model go back as they came; response-only ones don't.
     assert_eq!(body["favorite"], true);
     assert_eq!(body["fields"], plain_cipher(&kat, REV1)["fields"]);
     assert_eq!(body["login"]["username"], string(&kat, "username").1);

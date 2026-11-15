@@ -973,6 +973,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
 
 [[package]]
+name = "openwarden"
+version = "0.1.0"
+dependencies = [
+ "aes",
+ "argon2",
+ "base64 0.22.1",
+ "cbc",
+ "getrandom 0.3.4",
+ "hex",
+ "hkdf",
+ "hmac",
+ "pbkdf2",
+ "psl",
+ "regex",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "subtle",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+ "wiremock",
+ "zeroize",
+]
+
+[[package]]
 name = "password-hash"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1793,36 +1823,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec4cdd0dd910afe868b7ef477227d8d538b46b3075031afee8a9f2acb0a2ed0b"
 dependencies = [
  "try-lock",
-]
-
-[[package]]
-name = "warden-client"
-version = "0.1.0"
-dependencies = [
- "aes",
- "argon2",
- "base64 0.22.1",
- "cbc",
- "getrandom 0.3.4",
- "hex",
- "hkdf",
- "hmac",
- "pbkdf2",
- "psl",
- "regex",
- "reqwest",
- "secrecy",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "subtle",
- "thiserror",
- "tokio",
- "tracing",
- "url",
- "wiremock",
- "zeroize",
 ]
 
 [[package]]

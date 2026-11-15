@@ -1,12 +1,12 @@
 # Security policy
 
-warden-client handles master passwords, API keys, vault keys and decrypted
+openwarden handles master passwords, API keys, vault keys and decrypted
 vault data, so security reports are welcome and taken seriously.
 
 ## Reporting a vulnerability
 
 Report vulnerabilities privately through
-[GitHub private vulnerability reporting](https://github.com/talaagent/warden-client/security/advisories/new).
+[GitHub private vulnerability reporting](https://github.com/talaagent/openwarden/security/advisories/new).
 If that form is unavailable, email **github@igm.pub**. Please do not disclose
 an unpatched vulnerability in a public issue or pull request.
 
@@ -48,5 +48,5 @@ Out of scope:
 - vulnerabilities in Bitwarden or Vaultwarden themselves: report those to
   [Bitwarden](https://github.com/bitwarden/server/security/policy) or
   [Vaultwarden](https://github.com/dani-garcia/vaultwarden/security/policy);
-- a vulnerability in a dependency, unless warden-client's use of it makes it exploitable
+- a vulnerability in a dependency, unless openwarden's use of it makes it exploitable
   (report it upstream too).

@@ -14,7 +14,7 @@ pr_labels = ["release"]
 release_always = false
 
 [[package]]
-name = "warden-client"
+name = "openwarden"
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 git_tag_enable = true

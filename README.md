@@ -1,12 +1,12 @@
-# warden-client
+# openwarden
 
-[![CI](https://github.com/talaagent/warden-client/actions/workflows/ci.yml/badge.svg)](https://github.com/talaagent/warden-client/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/warden-client.svg)](https://crates.io/crates/warden-client)
-[![downloads](https://img.shields.io/crates/d/warden-client.svg)](https://crates.io/crates/warden-client)
-[![docs.rs](https://docs.rs/warden-client/badge.svg)](https://docs.rs/warden-client)
-[![lib.rs](https://img.shields.io/badge/lib.rs-warden--client-blue.svg)](https://lib.rs/crates/warden-client)
-[![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://github.com/talaagent/warden-client/blob/main/Cargo.toml)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/talaagent/warden-client/blob/main/LICENSE)
+[![CI](https://github.com/talaagent/openwarden/actions/workflows/ci.yml/badge.svg)](https://github.com/talaagent/openwarden/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/openwarden.svg)](https://crates.io/crates/openwarden)
+[![downloads](https://img.shields.io/crates/d/openwarden.svg)](https://crates.io/crates/openwarden)
+[![docs.rs](https://docs.rs/openwarden/badge.svg)](https://docs.rs/openwarden)
+[![lib.rs](https://img.shields.io/badge/lib.rs-openwarden-blue.svg)](https://lib.rs/crates/openwarden)
+[![Rust 1.88+](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://github.com/talaagent/openwarden/blob/main/Cargo.toml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/talaagent/openwarden/blob/main/LICENSE)
 
 An async Rust client library for the [Bitwarden](https://bitwarden.com) and
 [Vaultwarden](https://github.com/dani-garcia/vaultwarden) API, for the
@@ -21,7 +21,7 @@ This project is not affiliated with or endorsed by Bitwarden, Inc.
 
 ```toml
 [dependencies]
-warden-client = "0.1"
+openwarden = "0.1"
 ```
 
 Rust 1.88 or newer. HTTP goes through reqwest on rustls (aws-lc-rs); the
@@ -30,12 +30,12 @@ calls are plain `async fn`s and the tests run them on Tokio.
 ## Example
 
 ```rust,no_run
-use warden_client::{
+use openwarden::{
     ApiKey, Client, Device, ExposeSecret as _, KdfPolicy, MasterKey, MatchOptions, SecretString,
     ServerUrls, Vault,
 };
 
-async fn run() -> warden_client::Result<()> {
+async fn run() -> openwarden::Result<()> {
     let client = Client::new(
         ServerUrls::self_hosted("https://vault.example.com")?,
         Device {
@@ -104,7 +104,7 @@ master password.
 - **Writes**: create a login; update one. Every update (name, username,
   password, TOTP, URIs) needs a `ConfirmedItem` from `Vault::confirm_item`,
   bound to the item and its revision; a replaced password goes to the
-  item's history, and fields warden-client doesn't model are sent back
+  item's history, and fields openwarden doesn't model are sent back
   unchanged.
 
 ## Why another client
@@ -125,7 +125,7 @@ The other Rust crates around Bitwarden do different jobs:
 - [`rbw`](https://crates.io/crates/rbw) is an unofficial command-line client
   with a background agent, not a library.
 
-warden-client is an Apache-2.0 library for the whole personal-vault flow:
+openwarden is an Apache-2.0 library for the whole personal-vault flow:
 login, key derivation, unlock, sync, decryption, URI matching and writes.
 
 ## Status and roadmap
@@ -184,20 +184,20 @@ to keep each field with its item. Bitwarden's encrypted fields aren't bound
 to the item or field they belong to: every field of a personal item is
 encrypted under the same key, so a hostile server could move one item's
 password into another item that carries the server's own URI, and it would
-decrypt and match there. warden-client can't detect that. A caller that
+decrypt and match there. openwarden can't detect that. A caller that
 fills passwords into pages should use a server it trusts, over a trusted
 transport, and confirm with the user before any `Vault::update_login`.
 
 Report vulnerabilities privately: see
-[SECURITY.md](https://github.com/talaagent/warden-client/blob/main/SECURITY.md).
+[SECURITY.md](https://github.com/talaagent/openwarden/blob/main/SECURITY.md).
 
 ## Contributing
 
-See [CONTRIBUTING.md](https://github.com/talaagent/warden-client/blob/main/CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/talaagent/openwarden/blob/main/CONTRIBUTING.md).
 All test data is synthetic: known-answer fixtures from
 `scripts/gen-fixtures.sh` (OpenSSL), a mock server for the HTTP flows, and
 URI matching tables.
 
 ## License
 
-Apache-2.0. See [LICENSE](https://github.com/talaagent/warden-client/blob/main/LICENSE).
+Apache-2.0. See [LICENSE](https://github.com/talaagent/openwarden/blob/main/LICENSE).

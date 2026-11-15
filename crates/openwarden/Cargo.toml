@@ -1,12 +1,12 @@
 [package]
-name = "warden-client"
+name = "openwarden"
 description = "An async Rust client library for the Bitwarden and Vaultwarden personal-vault API: API-key login, unlock, sync, field-by-field decryption and URI matching"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/warden-client"
+documentation = "https://docs.rs/openwarden"
 authors.workspace = true
 rust-version.workspace = true
 # The repository README (a symlink), as on crates.io.

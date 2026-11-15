@@ -22,6 +22,6 @@ body:
     id: environment
     attributes:
       label: Version and environment
-      description: "warden-client version, Rust version, OS, and the server: Bitwarden cloud (US or EU), self-hosted Bitwarden or Vaultwarden, and its version."
+      description: "openwarden version, Rust version, OS, and the server: Bitwarden cloud (US or EU), self-hosted Bitwarden or Vaultwarden, and its version."
     validations:
       required: true

@@ -32,7 +32,7 @@ the API. CI also builds and tests on the MSRV, runs
 known-answer fixtures to check they are unchanged:
 
 ```sh
-nix develop -c bash scripts/gen-fixtures.sh | diff -u crates/warden-client/tests/fixtures/kat.json -
+nix develop -c bash scripts/gen-fixtures.sh | diff -u crates/openwarden/tests/fixtures/kat.json -
 ```
 
 ## Releases
@@ -64,7 +64,7 @@ token:
 3. Run the release-plz workflow by hand with `bootstrap=true`. It
    publishes the committed version.
 4. On crates.io, add a trusted publisher to the crate: owner `talaagent`,
-   repository `warden-client`, workflow `release-plz.yml`, no environment.
+   repository `openwarden`, workflow `release-plz.yml`, no environment.
 5. Delete the `CARGO_REGISTRY_TOKEN` secret and revoke the token. Later
    releases use OIDC; a persistent token would override it.
 

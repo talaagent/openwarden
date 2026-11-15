@@ -1,4 +1,4 @@
-# warden-client: contributor and agent guide
+# openwarden: contributor and agent guide
 
 An async Rust client library for the Bitwarden and Vaultwarden
 personal-vault API: API-key login, KDFs and unlock, sync, field-by-field
@@ -27,7 +27,7 @@ The MSRV is the workspace `rust-version` (1.88); CI checks and tests on it.
 
 ## Layout
 
-- `crates/warden-client/src/client.rs`: `Client`, `ServerUrls`, `Device`,
+- `crates/openwarden/src/client.rs`: `Client`, `ServerUrls`, `Device`,
   `ApiKey`, `Session`, `SyncData`; HTTP, the body cap, error mapping.
 - `src/kdf.rs`: `Kdf`, `KdfPolicy`, `MasterKey` (derive, stretch, unlock).
 - `src/crypto.rs`: `SymmetricKey` and `EncString` (type 2 only).

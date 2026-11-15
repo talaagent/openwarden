@@ -1,5 +1,5 @@
 {
-  description = "warden-client: an async Rust client for the Bitwarden and Vaultwarden API";
+  description = "openwarden: an async Rust client for the Bitwarden and Vaultwarden API";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -19,8 +19,8 @@
     {
       packages = forAllSystems (pkgs: {
         # The library, built and tested (cargo test runs in checkPhase).
-        warden-client = pkgs.rustPlatform.buildRustPackage {
-          pname = "warden-client";
+        openwarden = pkgs.rustPlatform.buildRustPackage {
+          pname = "openwarden";
           version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
           src = pkgs.lib.fileset.toSource {
             root = ./.;
@@ -28,7 +28,7 @@
               ./Cargo.toml
               ./Cargo.lock
               ./crates
-              # crates/warden-client links its README and LICENSE here.
+              # crates/openwarden links its README and LICENSE here.
               ./README.md
               ./LICENSE
             ];
@@ -42,16 +42,16 @@
             license = pkgs.lib.licenses.asl20;
           };
         };
-        default = self.packages.${pkgs.stdenv.hostPlatform.system}.warden-client;
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.openwarden;
       });
 
       checks = forAllSystems (pkgs: {
-        warden-client = self.packages.${pkgs.stdenv.hostPlatform.system}.warden-client;
+        openwarden = self.packages.${pkgs.stdenv.hostPlatform.system}.openwarden;
       });
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          name = "warden-client";
+          name = "openwarden";
           packages = [
             pkgs.cargo
             pkgs.rustc

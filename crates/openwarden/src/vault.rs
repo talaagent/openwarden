@@ -499,7 +499,7 @@ impl Vault {
     fn key_changed(&mut self, change: KeyChange) -> Error {
         tracing::debug!(
             ?change,
-            "warden-client: vault key changed on the server; locking"
+            "openwarden: vault key changed on the server; locking"
         );
         self.lock();
         Error::KeyChanged(change)
@@ -575,7 +575,7 @@ impl Vault {
             .into_iter()
             .filter_map(StoredCipher::parse)
             .collect();
-        tracing::debug!(items = self.ciphers.len(), "warden-client: sync applied");
+        tracing::debug!(items = self.ciphers.len(), "openwarden: sync applied");
         Ok(())
     }
 
@@ -606,7 +606,7 @@ impl Vault {
                 Ok(true) => out.push(info),
                 Ok(false) => {}
                 Err(_) => {
-                    tracing::debug!(item = %c.id, "warden-client: item URIs did not decrypt; skipped");
+                    tracing::debug!(item = %c.id, "openwarden: item URIs did not decrypt; skipped");
                 }
             }
         }
@@ -666,7 +666,7 @@ impl Vault {
     ///
     /// As [`username`](Self::username).
     pub fn password(&self, id: &CipherId) -> Result<Option<SecretString>> {
-        tracing::debug!(item = %id, "warden-client: password decrypted");
+        tracing::debug!(item = %id, "openwarden: password decrypted");
         self.login_field(id, |l| l.password.as_ref())
     }
 
@@ -789,7 +789,7 @@ impl Vault {
             column: 0,
         })?;
         let id = stored.id.clone();
-        tracing::debug!(item = %id, "warden-client: login created");
+        tracing::debug!(item = %id, "openwarden: login created");
         self.ciphers.push(stored);
         Ok(id)
     }
@@ -798,7 +798,7 @@ impl Vault {
     /// [`confirm_item`](Self::confirm_item) for this item at its current
     /// revision, whatever it changes (name, username, password, TOTP or
     /// URIs); without one nothing is sent. A replaced password goes to the
-    /// item's password history. Fields warden-client doesn't model are sent back
+    /// item's password history. Fields openwarden doesn't model are sent back
     /// as they came.
     ///
     /// # Errors
@@ -824,7 +824,7 @@ impl Vault {
                 line: 0,
                 column: 0,
             })?;
-        tracing::debug!(item = %id, "warden-client: login updated");
+        tracing::debug!(item = %id, "openwarden: login updated");
         if let Some(slot) = self.ciphers.iter_mut().find(|c| c.id == *id) {
             *slot = stored;
         }
