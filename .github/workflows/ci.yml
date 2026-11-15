@@ -1,11 +1,5 @@
-# CI: fmt, clippy, tests, docs, cargo-deny and the flake, each in the
-# flake's dev shell so CI and local runs use the same toolchain.
-#
-# The private gate: every job has `if: ${{ !github.event.repository.private }}`.
-# While the repo is private (where Actions minutes cost money) each job is
-# skipped, and a skipped job uses no minutes. The day the repo is made public
-# the condition turns true and the jobs run, with no further commit. Until
-# then, run the same checks locally in `nix develop`.
+# CI: fmt, clippy, tests, MSRV, docs, cargo-deny, package verification, and
+# the Nix flake with a known-answer fixture drift check.
 
 name: CI
 
@@ -24,61 +18,127 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # The toolchain the crate is developed against. Bump it with
+  # release-plz.yml's.
+  RUST_TOOLCHAIN: "1.98.1"
 
 jobs:
   fmt:
     name: rustfmt
-    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
-      - run: nix develop -c cargo fmt --all --check
+      - uses: actions/checkout@v7
+      # dtolnay/rust-toolchain master @ 2026-10-16; installs env.RUST_TOOLCHAIN (1.98.1)
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+      - run: cargo fmt --all --check
 
   clippy:
     name: clippy
-    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
-      - run: nix develop -c cargo clippy --workspace --all-targets --locked -- -D warnings
+      - uses: actions/checkout@v7
+      # dtolnay/rust-toolchain master @ 2026-10-16; installs env.RUST_TOOLCHAIN (1.98.1)
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
   test:
     name: test
-    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
-      - run: nix develop -c cargo test --workspace --locked
+      - uses: actions/checkout@v7
+      # dtolnay/rust-toolchain master @ 2026-10-16; installs env.RUST_TOOLCHAIN (1.98.1)
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      # Known-answer tests, the mock-server flows and the URI matching
+      # tables; no network beyond the local mock server.
+      - run: cargo nextest run --profile ci --workspace --all-targets --all-features --locked
+      # The README's example, compiled (lib.rs includes the README).
+      - run: cargo test --workspace --all-features --doc --locked
+
+  msrv:
+    name: MSRV
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: |
+          msrv=$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["workspace"]["package"]["rust-version"])')
+          echo "MSRV: $msrv"
+          echo "version=$msrv" >> "$GITHUB_OUTPUT"
+      # Re-resolve Cargo.lock with a current cargo, whose rust-version-aware
+      # resolver (resolver 3) picks dependency versions that still build on
+      # the MSRV.
+      # dtolnay/rust-toolchain master @ 2026-10-16; installs env.RUST_TOOLCHAIN (1.98.1)
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - run: cargo generate-lockfile
+      # dtolnay/rust-toolchain master @ 2026-10-16; installs the MSRV (rust-version)
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo +${{ steps.msrv.outputs.version }} check --workspace --all-targets --all-features --locked
+      - run: cargo +${{ steps.msrv.outputs.version }} test --workspace --all-features --locked
 
   doc:
     name: docs
-    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     env:
-      RUSTDOCFLAGS: -Dwarnings
+      RUSTDOCFLAGS: -D warnings
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
-      - run: nix develop -c cargo doc --workspace --no-deps --locked
+      - uses: actions/checkout@v7
+      # dtolnay/rust-toolchain master @ 2026-10-16; installs env.RUST_TOOLCHAIN (1.98.1)
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --no-deps --all-features --locked
 
   deny:
     name: cargo-deny
-    if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
-      # Licenses (permissive only), advisories, bans and sources: deny.toml.
-      - run: nix develop -c cargo deny check
+      - uses: actions/checkout@v7
+      # Licenses (permissive only), advisories, bans and sources: see
+      # deny.toml.
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  package:
+    name: package verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # dtolnay/rust-toolchain master @ 2026-10-16; installs env.RUST_TOOLCHAIN (1.98.1)
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+      - uses: Swatinem/rust-cache@v2
+      # Packages the crate and builds it from the packaged sources.
+      - run: cargo publish --workspace --dry-run --locked
 
   nix:
-    name: nix flake check
-    if: ${{ !github.event.repository.private }}
+    name: Nix flake and fixtures
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: cachix/install-nix-action@75c75c31ebece974e48ebc36b4ad125bd97bd97b # v31.11.3
+      - uses: actions/checkout@v7
+      - uses: cachix/install-nix-action@v31
+      # Builds and tests the crate in the Nix sandbox.
       - run: nix flake check -L
+      - run: nix develop --command cargo nextest --version
+      # The known-answer fixtures, regenerated with OpenSSL (deterministic),
+      # must match the committed ones.
+      - run: nix develop --command bash scripts/gen-fixtures.sh | diff -u crates/warden-client/tests/fixtures/kat.json -
