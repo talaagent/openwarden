@@ -140,6 +140,9 @@ Early (0.1); the API may change between minor versions.
 - [ ] Other item types (secure notes, cards, identities, SSH keys): synced,
       but not decrypted yet
 - [ ] Master-password login (the `password` grant) and two-factor
+- [ ] A CLI (planned, no code yet): the `openwarden-cli` crate, installing
+      the `ow` command, a fast `bw`-style CLI with an encrypted local cache
+      and the unlocked key held in the OS keyring
 
 ### Servers
 
