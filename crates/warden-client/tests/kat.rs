@@ -6,7 +6,7 @@
 mod common;
 
 use common::{bytes, kat, s, string};
-use wardwire::{
+use warden_client::{
     EncString, Error, ExposeSecret, Kdf, KdfPolicy, MasterKey, SecretString, SymmetricKey,
 };
 

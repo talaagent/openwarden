@@ -1,5 +1,5 @@
 [package]
-name = "wardwire"
+name = "warden-client"
 description = "An async client for the Bitwarden and Vaultwarden API: login, sync, decryption and URI matching"
 version.workspace = true
 edition.workspace = true

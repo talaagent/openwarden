@@ -1796,7 +1796,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "wardwire"
+name = "warden-client"
 version = "0.1.0"
 dependencies = [
  "aes",

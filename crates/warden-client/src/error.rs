@@ -27,7 +27,7 @@ pub enum KeyChange {
     UserKey,
 }
 
-/// An error from wardwire.
+/// An error from warden-client.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {

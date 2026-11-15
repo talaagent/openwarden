@@ -1,0 +1,29 @@
+{
+  "email": "kat-user@example.invalid",
+  "password": "correct horse battery staple",
+  "pbkdf2_iterations": 5000,
+  "argon2": { "iterations": 3, "memory_mib": 16, "parallelism": 4 },
+  "master_key_pbkdf2": "4d927b036f0ff3af93c539b665911ebd4a9f7870ce17d03a7254b59925a69b98",
+  "master_key_argon2id": "7ea32758bce221fc59aa1145031e4e4f4dc723cf4a5c194eeeb08649d83c7d8d",
+  "master_password_hash": "dzzQJfZVntb8W8WOFoQdD8J1qt/ZY55G35HeD2DUdfI=",
+  "stretched_enc": "81ec539a769c50f498492ee410b9f4fe767a791b365db2074482f4c6530315d2",
+  "stretched_mac": "84e18330c638b5a39d67c78ae2990eb4a673417297988a0a5c83e2c275d85e23",
+  "user_key": "c4de0ec9b4a6474afa099eb61b78e9d63489677284539a1519f1957646bfb4d5c173161b722d20420fff71249174da7ea2adb074fecf2ee89b5aef46bb1d3875",
+  "protected_key": "2.+qcEMcN7JiRb5971/SU3qg==|z0/fbObm4Cj3gCx2cjUZF0V6lX88PJmwrUEKqPmn+StAeINCfjxnN3K5hhbYCHCLWqnHoFSz2cYHeZaFblevD3ed3yTESn+MJzvCI1rIQdI=|5e3Q5hD1VfyskGi4KBALA3HnnEzfoF8vycGZYeVALwA=",
+  "protected_key_argon2id": "2.Um28pH3LnFq+c5kkWwLFSw==|7oKXksl1MnRjDTgGND4K+CIm2W/xI0Ibw8FWACZDUbm7c0W2yRsfOH22QStyJIg438yMiwpMOQCCM4LKqevTIMC5PebG2QrwiVKiZHaNMWI=|s6Pue8D9FMq8CNEeLdlddJFACmyNY0IxCeospYC7Dtw=",
+  "item_key_plain": "08d9404a472a01bf8f7dab445971e72f46dd099e9ed982d2356e3ede8e557180566172c089666164fe9517bc17049fe6fbdc175697b38bb11be933f766b34bcd",
+  "item_key": "2.UwdKt59e1Bc9yXNROjdV7w==|FXRrJp430q0hQGgJVHcTvFrVXkvoLq/BandIi30h3mC/OL76akl2YSNqlu1C9uq9VoL8PcdCw8bBGo94VrXWopVp/5hcsdqyQcF+GigvWB8=|DnuIlI4O9Z4GVeogGidZ8ZCVCu+55Gy9e+jedGYFhRg=",
+  "strings": {
+    "folder_name": ["Work", "2.zbhpxUEeI/a7p7fIPVe/Pg==|VNcHTS9GAqoM1pv8iY75KA==|z+u0ONG46vRKo6Z19jbMvjUO+LXnBIPo1TjutAdtWFY="],
+    "name": ["Example Login", "2.JHDnFkWPEwm9M0r55C3q6g==|EeD3BHI6sDvFwYBgku1qWA==|SmZayKXaib8ZUAVFHixKJEEi21boV9yueghQrmqUx5c="],
+    "username": ["alice@example.invalid", "2.Hz0WuSi8WlutU7fkubwauw==|+VFT56kFcw+2EZCvBccmRxYWkrgZgTytf0TYGAE1+I4=|lu+b4B+zpQj9GgYTlWbg+l4YBozLb3fDqlmcQAJ32M0="],
+    "password": ["hunter2-not-real", "2.4dR77GwAUjQBOAwxEkODKw==|kTGiRfBvjjZ4f37j/SH+ACugxPtLRm25WbQBbi8GpK4=|U3jvHHAzNwo4lS5ygNqP6ewvN8RRS6sZUaRv+TCPxMQ="],
+    "totp": ["JBSWY3DPEHPK3PXP", "2.r/r0YV7wKNQ+/K/0crXw2Q==|2evJHOJm7jjxJM/9Rku8PnaNFdOru+1Cp8AN8N/4RKw=|ymOBfhjR3BI6AnklIJkkpXbux6Ct/xxyQr5zrBBFzHY="],
+    "uri": ["https://login.example.com/signin", "2.rddLd4G5VlKwg7GwiqdPNQ==|zX3MsKv9BL1DALQ5NXwZiv+uLwnjHlyx0Od7KS1qR9UyKMY2BTXfnGsOY2hiziKU|JOCgYl26FjmBe1KVxpdzy9BuhiFydZDS6kYJY+4lgmg="],
+    "uri2": ["https://app.example.org", "2.ph6+nIAlrlMXzJMpiXaaMQ==|E0tbMB9JiU/2WYJNzVZNQGoReL8F8nYPxs9BOuT17Y8=|uq7crzwH7EAzlVvGFynAfauGok5PdKDKKeh4/CBCa80="],
+    "empty": ["", "2.i/en3xajzWqED/yVC7JL3A==|zqg3itaZooVdyiI/y0Foxw==|9yBnqo7RbTavZrgYZeg/TzxTdeJIPMSl96OFUAxbSx8="],
+    "item_name": ["Item Key Login", "2.J3wKpfcS6Wl82cwoGjNOEg==|rxsiz/jfdAd6+wzWcWYUvQ==|eCWPxgx86Yd9xNJuivXsOMYwJ8KMjk+Kxqs3VGNZAls="],
+    "item_password": ["item-key-secret", "2.tWd44lfnlYGWIId/uDOlJA==|QbTkZ4AAuInYQ3bP1uScaQ==|dmkgwOm61XtZaFpfNpY2x2S9RKAXjoQT+vKfXy6Hl8w="],
+    "item_uri": ["https://shop.example.net", "2.L2DJXzHWTTE2OU5Qj8I8ww==|y2wA0POsRWvKSn2ummv13zm5DKm63lLK5zk17tCoMes=|2EkXpMra0QyR6uptvwU0zYyqyPop5cqNt9eEFEFKQc8="]
+  }
+}

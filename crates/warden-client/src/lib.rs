@@ -1,4 +1,4 @@
-//! wardwire: an async client for the Bitwarden and Vaultwarden API.
+//! warden-client: an async client for the Bitwarden and Vaultwarden API.
 //!
 //! It logs in with a personal API key, unlocks the personal vault (with the
 //! master password, or a user key the caller kept sealed), syncs, and
@@ -7,10 +7,10 @@
 //! plaintext is zeroized on drop and none has a `Debug` that prints it.
 //!
 //! ```no_run
-//! use wardwire::{ApiKey, Client, Device, KdfPolicy, MasterKey, MatchOptions, SecretString, ServerUrls, Vault};
-//! use wardwire::ExposeSecret as _;
+//! use warden_client::{ApiKey, Client, Device, KdfPolicy, MasterKey, MatchOptions, SecretString, ServerUrls, Vault};
+//! use warden_client::ExposeSecret as _;
 //!
-//! # async fn run() -> wardwire::Result<()> {
+//! # async fn run() -> warden_client::Result<()> {
 //! let client = Client::new(
 //!     ServerUrls::self_hosted("https://vault.example.com")?,
 //!     Device {
@@ -53,7 +53,7 @@
 //! field they belong to: every field of a personal item is encrypted under
 //! the same key, so a hostile server can move one item's password into
 //! another item that carries the server's own URI, and it will decrypt and
-//! match there. wardwire can't detect that. A caller that fills passwords
+//! match there. warden-client can't detect that. A caller that fills passwords
 //! into pages should treat the server as trusted for item binding (run your
 //! own, over a trusted transport), and confirm with the user before any
 //! [`Vault::update_login`] (every one needs a [`ConfirmedItem`]).

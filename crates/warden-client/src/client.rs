@@ -331,7 +331,7 @@ impl Client {
     /// [`Error::Http`] if the HTTP client can't be built (no TLS roots).
     pub fn new(urls: ServerUrls, device: Device) -> Result<Self> {
         let http = reqwest::Client::builder()
-            .user_agent(concat!("wardwire/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("warden-client/", env!("CARGO_PKG_VERSION")))
             .timeout(Duration::from_secs(30))
             .redirect(reqwest::redirect::Policy::none())
             .build()
@@ -400,7 +400,7 @@ impl Client {
             (Some(k), Some(i)) => Some(Kdf::from_wire(k, i, w.kdf_memory, w.kdf_parallelism)?),
             _ => None,
         };
-        tracing::debug!("wardwire: logged in with an API key");
+        tracing::debug!("warden-client: logged in with an API key");
         Ok(Session {
             access_token: w.access_token,
             expires_at: expires_at(Duration::from_secs(w.expires_in))?,

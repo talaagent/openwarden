@@ -3,7 +3,7 @@
 // Tables run long.
 #![allow(clippy::too_many_lines)]
 
-use wardwire::{MatchOptions, UriMatch, uri_matches};
+use warden_client::{MatchOptions, UriMatch, uri_matches};
 
 use UriMatch::{Domain, Exact, Host, Never, RegularExpression, StartsWith};
 

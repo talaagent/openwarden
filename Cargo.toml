@@ -1,17 +1,17 @@
 [workspace]
 resolver = "3"
-members = ["crates/wardwire"]
+members = ["crates/warden-client"]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/talaagent/wardwire"
+repository = "https://github.com/talaagent/warden-client"
 authors = ["Ian Macalinao <github@igm.pub>"]
 rust-version = "1.88"
 
 [workspace.dependencies]
-wardwire = { path = "crates/wardwire", version = "0.1.0" }
+warden-client = { path = "crates/warden-client", version = "0.1.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -18,7 +18,7 @@ pr_labels = ["release"]
 pr_draft = false
 
 [[package]]
-name = "wardwire"
+name = "warden-client"
 git_tag_name = "v{{ version }}"
 git_release_name = "v{{ version }}"
-changelog_path = "crates/wardwire/CHANGELOG.md"
+changelog_path = "crates/warden-client/CHANGELOG.md"

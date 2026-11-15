@@ -1,4 +1,4 @@
-# wardwire
+# warden-client
 
 An async Rust client for the [Bitwarden](https://bitwarden.com) and
 [Vaultwarden](https://github.com/dani-garcia/vaultwarden) API, for the
@@ -15,18 +15,18 @@ Until the first crates.io release, use the git repository:
 
 ```toml
 [dependencies]
-wardwire = { git = "https://github.com/talaagent/wardwire" }
+warden-client = { git = "https://github.com/talaagent/warden-client" }
 ```
 
 ## Example
 
 ```rust,no_run
-use wardwire::{
+use warden_client::{
     ApiKey, Client, Device, ExposeSecret as _, KdfPolicy, MasterKey, MatchOptions, SecretString, ServerUrls,
     Vault,
 };
 
-async fn run() -> wardwire::Result<()> {
+async fn run() -> warden_client::Result<()> {
     let client = Client::new(
         ServerUrls::self_hosted("https://vault.example.com")?,
         Device {
@@ -96,7 +96,7 @@ master password.
 - **Writes**: create a login; update one. Every update (name, username,
   password, TOTP, URIs) needs a `ConfirmedItem` from `Vault::confirm_item`,
   bound to the item and its revision; a replaced password goes to the
-  item's history, and fields wardwire doesn't model are sent back
+  item's history, and fields warden-client doesn't model are sent back
   unchanged.
 
 ## Security

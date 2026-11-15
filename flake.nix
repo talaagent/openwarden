@@ -1,5 +1,5 @@
 {
-  description = "wardwire: an async Rust client for the Bitwarden and Vaultwarden API";
+  description = "warden-client: an async Rust client for the Bitwarden and Vaultwarden API";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -19,8 +19,8 @@
     {
       packages = forAllSystems (pkgs: {
         # The library, built and tested (cargo test runs in checkPhase).
-        wardwire = pkgs.rustPlatform.buildRustPackage {
-          pname = "wardwire";
+        warden-client = pkgs.rustPlatform.buildRustPackage {
+          pname = "warden-client";
           version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
           src = pkgs.lib.fileset.toSource {
             root = ./.;
@@ -39,16 +39,16 @@
             license = pkgs.lib.licenses.asl20;
           };
         };
-        default = self.packages.${pkgs.stdenv.hostPlatform.system}.wardwire;
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.warden-client;
       });
 
       checks = forAllSystems (pkgs: {
-        wardwire = self.packages.${pkgs.stdenv.hostPlatform.system}.wardwire;
+        warden-client = self.packages.${pkgs.stdenv.hostPlatform.system}.warden-client;
       });
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          name = "wardwire";
+          name = "warden-client";
           packages = [
             pkgs.cargo
             pkgs.rustc

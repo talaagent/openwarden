@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds crates/wardwire/tests/fixtures/kat.json: known-answer vectors for
+# Builds crates/warden-client/tests/fixtures/kat.json: known-answer vectors for
 # the KDFs, the key stretching and EncString (type 2) decryption, computed
 # with OpenSSL (an implementation independent of the crate's RustCrypto
 # one), following Bitwarden's published key derivation.
@@ -8,7 +8,7 @@
 # item contents. No real vault data. IVs and keys come from SHA-256 of fixed
 # labels, so the output is deterministic: rerun it and diff.
 #
-# Usage: scripts/gen-fixtures.sh > crates/wardwire/tests/fixtures/kat.json
+# Usage: scripts/gen-fixtures.sh > crates/warden-client/tests/fixtures/kat.json
 # (inside `nix develop`, for OpenSSL 3.2+ with Argon2).
 set -euo pipefail
 
@@ -22,8 +22,8 @@ argon_par=4
 hex() { od -An -v -tx1 | tr -d ' \n'; }
 b64hex() { xxd -r -p | base64 -w0; }
 sha256hex() { printf '%s' "$1" | openssl dgst -sha256 -binary | hex; }
-label_key() { sha256hex "wardwire-fixture-$1"; }
-label_iv() { sha256hex "wardwire-fixture-iv-$1" | cut -c1-32; }
+label_key() { sha256hex "warden-client-fixture-$1"; }
+label_iv() { sha256hex "warden-client-fixture-iv-$1" | cut -c1-32; }
 
 hkdf_expand() { # prk_hex info -> 32 bytes hex
   openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt "hexkey:$1" \
