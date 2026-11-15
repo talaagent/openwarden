@@ -59,6 +59,7 @@
             pkgs.rustfmt
             pkgs.rust-analyzer
             pkgs.cargo-deny
+            pkgs.cargo-nextest
             # scripts/gen-fixtures.sh: the reference implementation the
             # known-answer fixtures are built with.
             pkgs.openssl
