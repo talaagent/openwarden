@@ -28,6 +28,9 @@
               ./Cargo.toml
               ./Cargo.lock
               ./crates
+              # crates/warden-client links its README and LICENSE here.
+              ./README.md
+              ./LICENSE
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;

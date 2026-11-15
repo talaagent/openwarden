@@ -1,15 +1,18 @@
 [package]
 name = "warden-client"
-description = "An async client for the Bitwarden and Vaultwarden API: login, sync, decryption and URI matching"
+description = "An async Rust client library for the Bitwarden and Vaultwarden personal-vault API: API-key login, unlock, sync, field-by-field decryption and URI matching"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/warden-client"
 authors.workspace = true
 rust-version.workspace = true
-publish = false
-keywords = ["bitwarden", "vaultwarden", "password-manager", "client"]
-categories = ["api-bindings", "cryptography"]
+# The repository README (a symlink), as on crates.io.
+readme = "README.md"
+keywords = ["bitwarden", "vaultwarden", "password-manager", "api-client", "async"]
+categories = ["api-bindings", "authentication", "cryptography", "web-programming::http-client"]
 
 [dependencies]
 # Crypto: RustCrypto, at the versions the wider tree already builds.
@@ -44,3 +47,6 @@ wiremock = "0.6"
 
 [lints]
 workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
