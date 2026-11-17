@@ -1,5 +1,6 @@
-# CI: fmt, clippy, tests, MSRV, docs, cargo-deny, package verification, and
-# the Nix flake with a known-answer fixture drift check.
+# CI: fmt, clippy, tests (with and without `std`), a no_std target build,
+# MSRV, docs, cargo-deny, package verification, and the Nix flake with a
+# known-answer fixture drift check.
 
 name: CI
 
@@ -64,6 +65,40 @@ jobs:
       - run: cargo nextest run --profile ci --workspace --all-targets --all-features --locked
       # The README's example, compiled (lib.rs includes the README).
       - run: cargo test --workspace --all-features --doc --locked
+
+  test-no-std:
+    name: test (no default features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # dtolnay/rust-toolchain master @ 2026-10-16; installs env.RUST_TOOLCHAIN (1.98.1)
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # The crate without `std`, on the host: the no_std code paths and the
+      # cfg gates (the HTTP flow tests need `std` and are skipped).
+      - run: cargo clippy --workspace --all-targets --no-default-features --locked -- -D warnings
+      - run: cargo test --workspace --no-default-features --locked
+
+  no-std:
+    name: no_std build (wasm32v1-none)
+    runs-on: ubuntu-latest
+    env:
+      # getrandom has no backend for wasm32v1-none; a no_std user brings
+      # one (see the README).
+      RUSTFLAGS: --cfg getrandom_backend="custom"
+    steps:
+      - uses: actions/checkout@v7
+      # dtolnay/rust-toolchain master @ 2026-10-16; installs env.RUST_TOOLCHAIN (1.98.1)
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: wasm32v1-none
+      - uses: Swatinem/rust-cache@v2
+      # A target without std: anything that pulls std in fails to build.
+      - run: cargo build --workspace --no-default-features --target wasm32v1-none --locked
 
   msrv:
     name: MSRV

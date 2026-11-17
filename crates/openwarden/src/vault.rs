@@ -4,20 +4,38 @@
 //! a field is decrypted only when asked for, and a password only by
 //! [`Vault::password`].
 
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+#[cfg(any(feature = "std", test))]
+use alloc::format;
+use alloc::string::String;
+#[cfg(feature = "std")]
+use alloc::string::ToString;
+use alloc::vec::Vec;
 use core::fmt;
+#[cfg(feature = "std")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(feature = "std")]
 use base64::Engine as _;
+#[cfg(feature = "std")]
 use base64::engine::general_purpose::STANDARD as B64;
 use secrecy::{ExposeSecret, SecretBox, SecretString};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+#[cfg(feature = "std")]
+use serde_json::Map;
+use serde_json::Value;
+#[cfg(feature = "std")]
+use serde_json::json;
+#[cfg(feature = "std")]
 use sha2::{Digest, Sha256};
 
-use crate::client::{Client, Session, SyncData};
+#[cfg(feature = "std")]
+use crate::client::{Client, Session};
 use crate::crypto::{EncString, SymmetricKey};
 use crate::error::{Error, KeyChange, Result};
 use crate::kdf::{Kdf, MasterKey};
+use crate::sync::SyncData;
 use crate::totp::{self, TotpCode};
 use crate::uri::{MatchOptions, UriMatch, uri_matches};
 
@@ -39,6 +57,7 @@ impl CipherId {
 
     /// The id as a URL path segment: ids are UUIDs, so anything outside
     /// `[0-9A-Za-z-]` is refused rather than escaped.
+    #[cfg(feature = "std")]
     pub(crate) fn as_url_segment(&self) -> Result<&str> {
         if !self.0.is_empty()
             && self
@@ -182,6 +201,8 @@ impl fmt::Debug for LoginUri {
 #[derive(Debug)]
 pub struct ConfirmedItem {
     id: CipherId,
+    // Read by `update_login` (behind `std`).
+    #[cfg_attr(not(feature = "std"), allow(dead_code))]
     revision: Option<String>,
 }
 
@@ -311,6 +332,8 @@ struct StoredCipher {
     key: Option<String>,
     name: Option<String>,
     login: Option<StoredLogin>,
+    // Read by `update_login` (behind `std`).
+    #[cfg_attr(not(feature = "std"), allow(dead_code))]
     raw: Value,
 }
 
@@ -384,10 +407,12 @@ fn decrypt_opt(s: Option<&String>, key: &SymmetricKey) -> Result<Option<SecretSt
         .transpose()
 }
 
+#[cfg(feature = "std")]
 fn encrypt_str(s: &SecretString, key: &SymmetricKey) -> Result<String> {
     Ok(EncString::encrypt(key, s.expose_secret().as_bytes())?.to_string())
 }
 
+#[cfg(feature = "std")]
 fn uri_json(uri: &SecretString, m: Option<UriMatch>, key: &SymmetricKey) -> Result<Value> {
     let checksum = B64.encode(Sha256::digest(uri.expose_secret().as_bytes()));
     Ok(json!({
@@ -398,6 +423,7 @@ fn uri_json(uri: &SecretString, m: Option<UriMatch>, key: &SymmetricKey) -> Resu
 }
 
 /// The fields of a cipher response that a cipher request takes back.
+#[cfg(feature = "std")]
 const REQUEST_FIELDS: &[&str] = &[
     "type",
     "folderId",
@@ -529,6 +555,7 @@ impl Vault {
     /// # Errors
     ///
     /// [`Error::KeyChanged`].
+    #[cfg(feature = "std")]
     pub fn check_session(&mut self, session: &Session) -> Result<()> {
         if session
             .protected_key()
@@ -752,6 +779,7 @@ impl Vault {
     ///
     /// [`Error::Locked`], the client's errors, and [`Error::Decode`] if
     /// the server's answer isn't a personal item.
+    #[cfg(feature = "std")]
     pub async fn create_login(
         &mut self,
         client: &Client,
@@ -807,6 +835,7 @@ impl Vault {
     /// [`Error::ConfirmationMismatch`] with one for another item or
     /// revision, [`Error::Locked`], [`Error::NotFound`],
     /// [`Error::NotALogin`], and the client's errors.
+    #[cfg(feature = "std")]
     pub async fn update_login(
         &mut self,
         client: &Client,
@@ -831,6 +860,7 @@ impl Vault {
         Ok(())
     }
 
+    #[cfg(feature = "std")]
     fn update_body(
         &self,
         id: &CipherId,
@@ -912,6 +942,7 @@ impl Vault {
 }
 
 /// Now, as RFC 3339 UTC with milliseconds.
+#[cfg(feature = "std")]
 fn rfc3339_now() -> String {
     let d = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -921,6 +952,7 @@ fn rfc3339_now() -> String {
 
 /// Seconds since the epoch as RFC 3339 UTC (civil-from-days, Howard
 /// Hinnant's algorithm).
+#[cfg(any(feature = "std", test))]
 fn rfc3339(secs: u64, millis: u32) -> String {
     let days = secs / 86_400;
     let rem = secs % 86_400;
@@ -949,6 +981,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn cipher_id_segment() {
         assert!(CipherId::new("0b5c-AF12").as_url_segment().is_ok());
         assert!(CipherId::new("../x").as_url_segment().is_err());

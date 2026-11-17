@@ -986,7 +986,7 @@ dependencies = [
  "hmac",
  "pbkdf2",
  "psl",
- "regex",
+ "regex-automata",
  "reqwest",
  "secrecy",
  "serde",
