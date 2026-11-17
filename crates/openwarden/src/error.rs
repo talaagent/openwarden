@@ -4,6 +4,9 @@
 //! endpoint names, status codes and positions. Server bodies and serde
 //! messages (which can quote the input) are never kept.
 
+use alloc::format;
+use alloc::string::String;
+
 use crate::vault::CipherId;
 
 /// A `Result` with [`Error`].
@@ -32,6 +35,7 @@ pub enum KeyChange {
 #[non_exhaustive]
 pub enum Error {
     /// A transport error (connect, TLS, timeout, body read).
+    #[cfg(feature = "std")]
     #[error("http error on {endpoint}")]
     Http {
         /// Which call failed.
@@ -129,6 +133,7 @@ pub enum Error {
 }
 
 impl Error {
+    #[cfg(feature = "std")]
     pub(crate) fn http(endpoint: &'static str, source: reqwest::Error) -> Self {
         Self::Http {
             endpoint,

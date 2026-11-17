@@ -7,6 +7,9 @@
 //! - a bare base32 secret (spaces and padding ignored): SHA-1, 6 digits,
 //!   30 seconds.
 
+use alloc::format;
+use alloc::string::String;
+use alloc::vec::Vec;
 use hmac::{KeyInit, Mac};
 use secrecy::{ExposeSecret, SecretString};
 use zeroize::Zeroizing;
@@ -191,6 +194,8 @@ pub fn generate(secret: &SecretString, unix_time: u64) -> Result<TotpCode> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::borrow::ToOwned;
+
     use super::*;
 
     fn code(secret: &str, t: u64) -> String {

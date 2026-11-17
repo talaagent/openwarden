@@ -27,6 +27,27 @@ openwarden = "0.1"
 Rust 1.88 or newer. HTTP goes through reqwest on rustls (aws-lc-rs); the
 calls are plain `async fn`s and the tests run them on Tokio.
 
+### `no_std`
+
+The crate is `no_std` + `alloc` with `default-features = false`. The
+default `std` feature gates the HTTP client (`Client`, `ServerUrls`,
+`Device`, `ApiKey`, `Session`, `Error::Http`), the calls that take one
+(`Vault::check_session`, `create_login`, `update_login`) and the system
+clock, and turns on the dependencies' std support. Without it you still
+get the KDFs and unlock, `EncString`s, `SyncData::from_json` and
+`Vault::apply_sync`, field decryption, URI matching (regexes included) and
+TOTP:
+
+```toml
+[dependencies]
+openwarden = { version = "0.1", default-features = false }
+```
+
+Random IVs come from [getrandom](https://docs.rs/getrandom/0.3); on a
+target it has no backend for (bare metal, `wasm32v1-none`), build with
+`--cfg getrandom_backend="custom"` and provide one. CI builds the crate for
+`wasm32v1-none` and runs the tests without `std`.
+
 ## Example
 
 ```rust,no_run

@@ -29,6 +29,7 @@ The MSRV is the workspace `rust-version` (1.88); CI checks and tests on it.
 
 - `crates/openwarden/src/client.rs`: `Client`, `ServerUrls`, `Device`,
   `ApiKey`, `Session`, `SyncData`; HTTP, the body cap, error mapping.
+- `src/sync.rs`: `SyncData`, a parsed (still encrypted) sync response.
 - `src/kdf.rs`: `Kdf`, `KdfPolicy`, `MasterKey` (derive, stretch, unlock).
 - `src/crypto.rs`: `SymmetricKey` and `EncString` (type 2 only).
 - `src/vault.rs`: `Vault`, `UserKey`, `KeyState`, lazy decryption, key-change
@@ -64,6 +65,10 @@ The MSRV is the workspace `rust-version` (1.88); CI checks and tests on it.
   token, sync response or server URL.
 - Don't port code from Bitwarden's clients or SDK (GPL-3.0 or the Bitwarden
   license). Implement from the documented protocol and test vectors.
+- The crate is `no_std` + `alloc`; the default `std` feature gates the
+  HTTP client, the calls that take one and the clock. Import from `alloc`
+  (there is no std prelude), and gate std-only tests with
+  `#[cfg(feature = "std")]`.
 - `unsafe` is forbidden; no `unwrap` outside tests; `core`/`alloc` paths
   over `std` where they exist (the workspace lints enforce these).
 - The README is the crate docs (`include_str!`), so its example is a

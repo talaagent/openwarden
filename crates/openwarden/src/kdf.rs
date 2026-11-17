@@ -12,6 +12,7 @@
 //! hostile server can't downgrade the KDF to make an offline guess cheap,
 //! or inflate it to exhaust memory.
 
+use alloc::string::String;
 use core::fmt;
 
 use base64::Engine as _;

@@ -6,6 +6,7 @@
 //! decryption. Types 0 and 1 (no MAC, or a 128-bit key) are refused; the
 //! RSA types (3 to 6) and COSE (7) are not supported in v1.
 
+use alloc::vec::Vec;
 use core::fmt;
 use core::str::FromStr;
 
@@ -229,6 +230,9 @@ impl<'de> serde::Deserialize<'de> for EncString {
 
 #[cfg(test)]
 mod tests {
+    use alloc::format;
+    use alloc::string::ToString;
+
     use super::*;
     use secrecy::ExposeSecret;
 

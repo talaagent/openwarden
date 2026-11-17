@@ -36,6 +36,11 @@
 //! regex in a login URI is the vault's data, and with it off a regex URI
 //! never matches.
 
+use alloc::borrow::ToOwned;
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use regex_automata::{meta, util::syntax};
 use url::{Host, Url};
 
 /// A login URI's match type.
@@ -234,10 +239,14 @@ pub fn uri_matches(
         UriMatch::Exact => page == login_uri,
         UriMatch::RegularExpression => {
             opts.allow_regex
-                && regex::RegexBuilder::new(login_uri)
-                    .case_insensitive(true)
-                    .size_limit(REGEX_SIZE_LIMIT)
-                    .build()
+                && meta::Regex::builder()
+                    .configure(
+                        meta::Config::new()
+                            .nfa_size_limit(Some(REGEX_SIZE_LIMIT))
+                            .onepass_size_limit(Some(REGEX_SIZE_LIMIT)),
+                    )
+                    .syntax(syntax::Config::new().case_insensitive(true))
+                    .build(login_uri)
                     .is_ok_and(|re| re.is_match(page))
         }
         UriMatch::Never => false,
