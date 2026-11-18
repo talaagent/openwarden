@@ -1,8 +1,9 @@
 #:schema https://raw.githubusercontent.com/talaagent/cargo-faster/main/docs/cargo-faster.schema.json
 # Reference: https://github.com/talaagent/cargo-faster/blob/main/docs/cargo-faster.md#the-configuration-file
 
-# A single-crate workspace: every edit is to openwarden.
-hot = ["openwarden"]
+# The library and the `ow` CLI on top of it; most edits are to openwarden,
+# and each one rebuilds openwarden-cli.
+hot = ["openwarden", "openwarden-cli"]
 
 # A standalone public library; tala-agent depends on it, never the reverse.
 [[layer]]
@@ -15,11 +16,15 @@ reason = "a standalone public library; tala-agent depends on it, never the rever
 # run), edit rebuild of openwarden 2.3s (1.1s), critical path: openwarden
 # (1 crate), 6 duplicate versions. Machine: shared 32-core dev box, cold,
 # `nix develop`. Time budgets are the measurement x 1.25, rounded up.
+# Rechecked 2026-11-18 after openwarden-cli joined the workspace: cold
+# `cargo check --workspace` 15.2s without kache (10.6s on the other run), so
+# the time budgets stand; the critical path is openwarden -> openwarden-cli
+# (2 crates), 7 duplicate versions.
 [budgets]
 cold_check_secs = 31
 edit_rebuild_secs = 3
-critical_path_max_crates = 1
-no_new_critical_crates = ["openwarden"]
+critical_path_max_crates = 2
+no_new_critical_crates = ["openwarden", "openwarden-cli"]
 max_duplicate_versions = 8
 
 [env]
