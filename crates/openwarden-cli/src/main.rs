@@ -91,6 +91,13 @@ struct Common {
     /// Print nothing but errors.
     #[bpaf(long("quiet"))]
     quiet: bool,
+    /// Leave secrets out of item JSON (passwords, TOTP seeds, notes, field
+    /// values, password history, card, identity and SSH key values), and
+    /// refuse `get password|totp|notes`. For a caller that may see an
+    /// item's shape but not its secrets. Set OW_REDACT (to anything) to
+    /// turn it on for every command.
+    #[bpaf(long("redact"), env("OW_REDACT"))]
+    redact: bool,
     /// Never prompt (ow never does; accepted for bw compatibility).
     #[bpaf(long("nointeraction"))]
     #[allow(dead_code)] // accepted and ignored

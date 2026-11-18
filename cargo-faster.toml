@@ -1,8 +1,8 @@
 #:schema https://raw.githubusercontent.com/talaagent/cargo-faster/main/docs/cargo-faster.schema.json
 # Reference: https://github.com/talaagent/cargo-faster/blob/main/docs/cargo-faster.md#the-configuration-file
 
-# Two crates: the openwarden library and the `ow` CLI on top of it. Edits
-# land in both.
+# The library and the `ow` CLI on top of it; most edits are to openwarden,
+# and each one rebuilds openwarden-cli.
 hot = ["openwarden", "openwarden-cli"]
 
 # A standalone public library; tala-agent depends on it, never the reverse.
@@ -11,21 +11,24 @@ crates = ["*"]
 must_not_depend_on = ["tala-*"]
 reason = "a standalone public library; tala-agent depends on it, never the reverse"
 
-# Re-measured 2026-11-18 after openwarden-cli joined, by hand (this
-# cargo-faster build has no `check`): `cargo check --workspace --all-targets
-# --all-features` in a fresh target dir under `nix develop`, two runs, the
-# larger taken. Cold 11.2s (5.6s on the second run; sccache warm), edit
-# rebuild after touching openwarden 4.0s (2.0s), after touching
-# openwarden-cli 7.2s; critical path openwarden -> openwarden-cli (2
-# crates); 7 duplicate versions (`cargo tree -d`). Machine: shared 32-core
-# dev box. The cold budget keeps the earlier single-crate measurement's
-# (24.5s x 1.25); the others are the measurement x 1.25, rounded up.
+# Measured 2026-11-18 with `cargo faster check --timings` (two runs, the
+# larger taken): cold `cargo check --workspace` 24.5s (12.0s on the second
+# run), edit rebuild of openwarden 2.3s (1.1s), critical path: openwarden
+# (1 crate), 6 duplicate versions. Machine: shared 32-core dev box, cold,
+# `nix develop`. Time budgets are the measurement x 1.25, rounded up.
+# Rechecked 2026-11-18 after openwarden-cli joined the workspace: cold
+# `cargo check --workspace` 15.2s without kache (10.6s on the other run), so
+# the time budgets stand; the critical path is openwarden -> openwarden-cli
+# (2 crates), 7 duplicate versions.
+# Rechecked 2026-11-18 after `ow --redact` (#10, no new dependencies): an
+# edit to openwarden rebuilds in 0.3-0.9s, one to openwarden-cli in 0.2s,
+# 7 duplicate versions; the budgets stand.
 [budgets]
 cold_check_secs = 31
-edit_rebuild_secs = 9
+edit_rebuild_secs = 3
 critical_path_max_crates = 2
 no_new_critical_crates = ["openwarden", "openwarden-cli"]
-max_duplicate_versions = 9
+max_duplicate_versions = 8
 
 [env]
 nextest_profile = "ci" # the profile CI runs (.github/workflows/ci.yml)

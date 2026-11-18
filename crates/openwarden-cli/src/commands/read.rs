@@ -22,7 +22,12 @@ pub fn list(ctx: &Ctx, object: ListObject, filter: &Filter, common: &Common) -> 
             let mut out = Vec::with_capacity(found.len());
             for cipher in found {
                 match dec.item(cipher) {
-                    Ok(item) => out.push(item),
+                    Ok(mut item) => {
+                        if common.redact {
+                            item.redact();
+                        }
+                        out.push(item);
+                    }
                     Err(_) => failed.push(cipher.id.clone()),
                 }
             }
@@ -94,8 +99,21 @@ pub fn print_item(
     let dec = Decryptor::new(&keys.user);
     let (readable, _) = items::readable(&sync);
     let cipher = items::find_one(&dec, &readable, query)?;
-    let item = dec.item(cipher)?;
+    if common.redact
+        && matches!(
+            object,
+            GetObject::Password | GetObject::Totp | GetObject::Notes
+        )
+    {
+        return Err(CliError::Usage(
+            "--redact refuses `get password`, `get totp` and `get notes`",
+        ));
+    }
+    let mut item = dec.item(cipher)?;
     if object == GetObject::Item {
+        if common.redact {
+            item.redact();
+        }
         return output::json(&item, common);
     }
     let login = item.login;

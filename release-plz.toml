@@ -2,7 +2,8 @@
 #
 # Runs from .github/workflows/release-plz.yml while the repository is public
 # and owned by talaagent. One crate, one CHANGELOG.md, `v<version>` tags and
-# GitHub releases.
+# GitHub releases for the library; the `ow` CLI (openwarden-cli) is released
+# with it, on the same version, with its own tag.
 [workspace]
 publish = true
 # cargo-semver-checks against the last published version.
@@ -15,6 +16,7 @@ release_always = false
 
 [[package]]
 name = "openwarden"
+version_group = "openwarden"
 changelog_update = true
 changelog_path = "CHANGELOG.md"
 git_tag_enable = true
@@ -22,7 +24,13 @@ git_tag_name = "v{{ version }}"
 git_release_enable = true
 git_release_name = "v{{ version }}"
 
-# The `ow` CLI: released by hand for now (not published by release-plz).
+# The `ow` CLI. Both crates share version.workspace, so they release together.
 [[package]]
 name = "openwarden-cli"
-release = false
+version_group = "openwarden"
+changelog_update = true
+changelog_path = "crates/openwarden-cli/CHANGELOG.md"
+git_tag_enable = true
+git_tag_name = "openwarden-cli-v{{ version }}"
+git_release_enable = true
+git_release_name = "openwarden-cli v{{ version }}"
