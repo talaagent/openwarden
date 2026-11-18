@@ -119,11 +119,23 @@ fn app_dir(name: &str) -> PathBuf {
     dir
 }
 
-fn ow(dir: &Path, session: Option<&str>, args: &[&str]) -> Output {
+/// `ow` with a clean environment: the state directory, and the CA store
+/// settings rustls' platform verifier needs (the nix build sandbox has no
+/// system store).
+fn ow_cmd(dir: &Path) -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_ow"));
+    cmd.env_clear().env("OPENWARDEN_APPDATA_DIR", dir);
+    for var in ["SSL_CERT_FILE", "SSL_CERT_DIR", "NIX_SSL_CERT_FILE"] {
+        if let Some(value) = std::env::var_os(var) {
+            cmd.env(var, value);
+        }
+    }
+    cmd
+}
+
+fn ow(dir: &Path, session: Option<&str>, args: &[&str]) -> Output {
+    let mut cmd = ow_cmd(dir);
     cmd.args(args)
-        .env_clear()
-        .env("OPENWARDEN_APPDATA_DIR", dir)
         .env("OW_TEST_PASSWORD", s(&kat(), "password"))
         .stdin(std::process::Stdio::null());
     if let Some(key) = session {
@@ -297,10 +309,8 @@ async fn wrong_password_is_refused_offline() {
     let server = server(&kat, 1).await;
     let dir = app_dir("wrong");
     login(&dir, &server);
-    let out = Command::new(env!("CARGO_BIN_EXE_ow"))
+    let out = ow_cmd(&dir)
         .args(["unlock", "--passwordenv", "OW_TEST_PASSWORD", "--raw"])
-        .env_clear()
-        .env("OPENWARDEN_APPDATA_DIR", &dir)
         .env("OW_TEST_PASSWORD", "not the password")
         .output()
         .unwrap();
@@ -328,10 +338,8 @@ fn secrets_on_argv_are_refused() {
 
 fn ow_stdin(dir: &Path, session: &str, args: &[&str], input: &[u8]) -> Output {
     use std::io::Write as _;
-    let mut child = Command::new(env!("CARGO_BIN_EXE_ow"))
+    let mut child = ow_cmd(dir)
         .args(args)
-        .env_clear()
-        .env("OPENWARDEN_APPDATA_DIR", dir)
         .env("BW_SESSION", session)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

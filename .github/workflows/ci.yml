@@ -98,7 +98,8 @@ jobs:
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
       # A target without std: anything that pulls std in fails to build.
-      - run: cargo build --workspace --no-default-features --target wasm32v1-none --locked
+      # The `ow` CLI is std-only.
+      - run: cargo build --workspace --exclude openwarden-cli --no-default-features --target wasm32v1-none --locked
 
   msrv:
     name: MSRV
