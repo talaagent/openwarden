@@ -860,6 +860,38 @@ impl Vault {
         Ok(())
     }
 
+    /// Deletes an item: to the trash, or for good with `permanent`. Like
+    /// an update, it needs `confirmed` for this item at its current
+    /// revision.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::UpdateRefused`] without a confirmation,
+    /// [`Error::ConfirmationMismatch`] with one for another item or
+    /// revision, [`Error::NotFound`], and the client's errors.
+    #[cfg(feature = "std")]
+    pub async fn delete_item(
+        &mut self,
+        client: &Client,
+        session: &Session,
+        id: &CipherId,
+        permanent: bool,
+        confirmed: Option<ConfirmedItem>,
+    ) -> Result<()> {
+        let c = self.cipher(id)?;
+        match confirmed {
+            None => return Err(Error::UpdateRefused(id.clone())),
+            Some(t) if t.id != *id || t.revision != c.revision => {
+                return Err(Error::ConfirmationMismatch(id.clone()));
+            }
+            Some(_) => {}
+        }
+        client.delete_cipher(session, id, permanent).await?;
+        tracing::debug!(item = %id, permanent, "openwarden: item deleted");
+        self.ciphers.retain(|c| c.id != *id);
+        Ok(())
+    }
+
     #[cfg(feature = "std")]
     fn update_body(
         &self,
