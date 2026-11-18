@@ -7,6 +7,7 @@ mod write;
 use std::io::{IsTerminal as _, Read as _};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use jiff::Timestamp;
 use openwarden::{ApiKey, Client, Device, SecretString, ServerUrls, Session};
 use zeroize::Zeroizing;
 
@@ -336,37 +337,16 @@ fn now_secs() -> u64 {
         .map_or(0, |elapsed| elapsed.as_secs())
 }
 
-/// `2024-05-01T12:00:00.000Z` for ms since the epoch. No date crate is in
-/// the dependency tree, so the civil date is computed here (Howard
-/// Hinnant's `civil_from_days`, from his public description), with known
-/// dates in the tests.
+/// `2024-05-01T12:00:00.000Z` for ms since the epoch, as `bw` prints
+/// dates (RFC 3339, UTC, milliseconds). Out of range clamps to jiff's
+/// bounds; the times come from `ow`'s own clock.
 fn iso8601(ms: i64) -> String {
-    let secs = ms.div_euclid(1000);
-    let millis = ms.rem_euclid(1000);
-    let days = secs.div_euclid(86_400);
-    let secs_of_day = secs.rem_euclid(86_400);
-    // Days since 0000-03-01, so leap days fall at the end of a year.
-    let shifted_days = days + 719_468;
-    let era = shifted_days.div_euclid(146_097);
-    let day_of_era = shifted_days.rem_euclid(146_097);
-    let year_of_era =
-        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
-    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
-    // Months counted from March.
-    let month_from_march = (5 * day_of_year + 2) / 153;
-    let day = day_of_year - (153 * month_from_march + 2) / 5 + 1;
-    let month = if month_from_march < 10 {
-        month_from_march + 3
+    let timestamp = Timestamp::from_millisecond(ms).unwrap_or(if ms < 0 {
+        Timestamp::MIN
     } else {
-        month_from_march - 9
-    };
-    let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z",
-        secs_of_day / 3600,
-        secs_of_day / 60 % 60,
-        secs_of_day % 60
-    )
+        Timestamp::MAX
+    });
+    format!("{timestamp:.3}")
 }
 
 #[cfg(test)]
@@ -381,5 +361,6 @@ mod tests {
         assert_eq!(iso8601(946_684_799_999), "1999-12-31T23:59:59.999Z");
         assert_eq!(iso8601(4_107_542_400_000), "2100-03-01T00:00:00.000Z");
         assert_eq!(iso8601(-1), "1969-12-31T23:59:59.999Z");
+        assert_eq!(iso8601(i64::MAX), "9999-12-30T22:00:00.999Z");
     }
 }
