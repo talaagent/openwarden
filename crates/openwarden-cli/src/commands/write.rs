@@ -82,7 +82,7 @@ fn read_item() -> Result<ItemIn> {
             .map_err(|_| CliError::Base64)?,
     );
     let item: ItemIn =
-        serde_json::from_slice(&json).map_err(|e| CliError::json("the item JSON", &e))?;
+        serde_json::from_slice(&json).map_err(|err| CliError::json("the item JSON", &err))?;
     if item.kind != LOGIN {
         return Err(CliError::Unsupported("items other than logins"));
     }
@@ -92,21 +92,22 @@ fn read_item() -> Result<ItemIn> {
     Ok(item)
 }
 
-fn non_empty(s: Option<&SecretString>) -> Option<&str> {
-    s.map(openwarden::ExposeSecret::expose_secret)
-        .filter(|s| !s.is_empty())
+fn non_empty(secret: Option<&SecretString>) -> Option<&str> {
+    secret
+        .map(openwarden::ExposeSecret::expose_secret)
+        .filter(|text| !text.is_empty())
 }
 
 fn uris(input: Option<&LoginIn>) -> Vec<(SecretString, Option<UriMatch>)> {
     input
-        .and_then(|l| l.uris.as_deref())
+        .and_then(|login| login.uris.as_deref())
         .unwrap_or_default()
         .iter()
-        .filter_map(|u| {
-            let uri = non_empty(u.uri.as_ref())?;
+        .filter_map(|entry| {
+            let uri = non_empty(entry.uri.as_ref())?;
             Some((
                 SecretString::from(uri),
-                u.match_type.and_then(UriMatch::from_wire),
+                entry.match_type.and_then(UriMatch::from_wire),
             ))
         })
         .collect()
@@ -134,23 +135,29 @@ pub async fn create(ctx: &mut Ctx, common: &Common) -> Result<()> {
     if non_empty(item.notes.as_ref()).is_some() {
         return Err(CliError::Unsupported("notes in `create`"));
     }
-    if item.fields.as_ref().is_some_and(|f| !f.is_empty()) {
+    if item
+        .fields
+        .as_ref()
+        .is_some_and(|fields| !fields.is_empty())
+    {
         return Err(CliError::Unsupported("custom fields in `create`"));
     }
     if item.favorite {
         return Err(CliError::Unsupported("favorites in `create`"));
     }
     let login = item.login.as_ref();
-    let secret = |f: fn(&LoginIn) -> Option<&SecretString>| {
-        login.and_then(|l| non_empty(f(l))).map(SecretString::from)
+    let secret = |pick: fn(&LoginIn) -> Option<&SecretString>| {
+        login
+            .and_then(|login| non_empty(pick(login)))
+            .map(SecretString::from)
     };
     let draft = LoginDraft {
         name: SecretString::from(
             non_empty(item.name.as_ref()).ok_or(CliError::Usage("the item needs a name"))?,
         ),
-        username: secret(|l| l.username.as_ref()),
-        password: secret(|l| l.password.as_ref()),
-        totp: secret(|l| l.totp.as_ref()),
+        username: secret(|login| login.username.as_ref()),
+        password: secret(|login| login.password.as_ref()),
+        totp: secret(|login| login.totp.as_ref()),
         uris: uris(login),
         folder_id: item.folder_id.clone().map(FolderId::new),
     };
@@ -162,8 +169,8 @@ pub async fn create(ctx: &mut Ctx, common: &Common) -> Result<()> {
     print_item(ctx, &keys, GetObject::Item, id.as_str(), common)
 }
 
-fn same(a: Option<&SecretString>, b: Option<&Plain>) -> bool {
-    non_empty(a) == non_empty(b.map(|p| &p.0))
+fn same(new: Option<&SecretString>, old: Option<&Plain>) -> bool {
+    non_empty(new) == non_empty(old.map(|plain| &plain.0))
 }
 
 /// What `edit` can change: the name, username, password and TOTP, and new
@@ -184,58 +191,59 @@ fn diff(item: &ItemIn, current: &ItemOut<'_>) -> Result<LoginUpdate> {
         return Err(CliError::Unsupported("changing custom fields in `edit`"));
     }
     let login = item.login.as_ref();
-    let cur = current.login.as_ref();
+    let current_login = current.login.as_ref();
     let changed =
         |new: Option<&SecretString>, old: Option<&Plain>| -> Result<Option<SecretString>> {
-            match (non_empty(new), non_empty(old.map(|p| &p.0))) {
-                (a, b) if a == b => Ok(None),
+            match (non_empty(new), non_empty(old.map(|plain| &plain.0))) {
+                (new, old) if new == old => Ok(None),
                 (None, Some(_)) => Err(CliError::Unsupported("clearing a field in `edit`")),
-                (Some(a), _) => Ok(Some(SecretString::from(a))),
+                (Some(new), _) => Ok(Some(SecretString::from(new))),
                 (None, None) => Ok(None),
             }
         };
     let new_uris = uris(login);
-    let old_uris: Vec<&str> = cur
-        .map(|l| {
-            l.uris
+    let old_uris: Vec<&str> = current_login
+        .map(|login| {
+            login
+                .uris
                 .iter()
-                .filter_map(|u| non_empty(u.uri.as_ref().map(|p| &p.0)))
+                .filter_map(|entry| non_empty(entry.uri.as_ref().map(|plain| &plain.0)))
                 .collect()
         })
         .unwrap_or_default();
     if old_uris
         .iter()
-        .any(|o| !new_uris.iter().any(|(n, _)| n.expose_secret() == *o))
+        .any(|old| !new_uris.iter().any(|(new, _)| new.expose_secret() == *old))
     {
         return Err(CliError::Unsupported("removing URIs in `edit`"));
     }
     Ok(LoginUpdate {
         name: changed(item.name.as_ref(), current.name.as_ref())?,
         username: changed(
-            login.and_then(|l| l.username.as_ref()),
-            cur.and_then(|l| l.username.as_ref()),
+            login.and_then(|login| login.username.as_ref()),
+            current_login.and_then(|login| login.username.as_ref()),
         )?,
         password: changed(
-            login.and_then(|l| l.password.as_ref()),
-            cur.and_then(|l| l.password.as_ref()),
+            login.and_then(|login| login.password.as_ref()),
+            current_login.and_then(|login| login.password.as_ref()),
         )?,
         totp: changed(
-            login.and_then(|l| l.totp.as_ref()),
-            cur.and_then(|l| l.totp.as_ref()),
+            login.and_then(|login| login.totp.as_ref()),
+            current_login.and_then(|login| login.totp.as_ref()),
         )?,
         add_uris: new_uris
             .into_iter()
-            .filter(|(n, _)| !old_uris.contains(&n.expose_secret()))
+            .filter(|(new, _)| !old_uris.contains(&new.expose_secret()))
             .collect(),
     })
 }
 
-fn is_empty(u: &LoginUpdate) -> bool {
-    u.name.is_none()
-        && u.username.is_none()
-        && u.password.is_none()
-        && u.totp.is_none()
-        && u.add_uris.is_empty()
+fn is_empty(update: &LoginUpdate) -> bool {
+    update.name.is_none()
+        && update.username.is_none()
+        && update.password.is_none()
+        && update.totp.is_none()
+        && update.add_uris.is_empty()
 }
 
 /// `edit item ID`: from base64 JSON on stdin.
@@ -248,7 +256,7 @@ pub async fn edit(ctx: &mut Ctx, id: &str, common: &Common) -> Result<()> {
         let cipher = crate::items::readable(&sync)
             .0
             .into_iter()
-            .find(|c| c.id.eq_ignore_ascii_case(id))
+            .find(|cipher| cipher.id.eq_ignore_ascii_case(id))
             .ok_or(CliError::NotFound)?;
         let current = Decryptor::new(&keys.user).item(cipher)?;
         diff(&item, &current)?

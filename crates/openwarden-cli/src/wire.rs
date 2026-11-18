@@ -167,12 +167,12 @@ mod tests {
             "Ciphers":[{"Id":"c","Type":1,"Name":"2.n","Login":{"Uris":[{"Uri":"2.u","Match":3}]},
             "Card":{"Brand":"2.b","ExpYear":null}}],"Folders":null}"#;
         for body in [&camel[..], &pascal[..]] {
-            let s: SyncResponse = serde_json::from_slice(body).unwrap();
-            assert_eq!(s.profile.email, "alice@example.org");
-            let c = &s.ciphers.unwrap()[0];
-            assert_eq!(c.kind, 1);
+            let sync: SyncResponse = serde_json::from_slice(body).unwrap();
+            assert_eq!(sync.profile.email, "alice@example.org");
+            let cipher = &sync.ciphers.unwrap()[0];
+            assert_eq!(cipher.kind, 1);
             assert_eq!(
-                c.login.as_ref().unwrap().uris.as_ref().unwrap()[0]
+                cipher.login.as_ref().unwrap().uris.as_ref().unwrap()[0]
                     .uri
                     .as_deref(),
                 Some("2.u")

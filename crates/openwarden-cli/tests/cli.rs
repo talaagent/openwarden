@@ -30,7 +30,7 @@ fn kat() -> Value {
     serde_json::from_str(include_str!("../../openwarden/tests/fixtures/kat.json")).unwrap()
 }
 
-fn s<'a>(kat: &'a Value, key: &str) -> &'a str {
+fn kat_str<'a>(kat: &'a Value, key: &str) -> &'a str {
     kat[key].as_str().unwrap()
 }
 
@@ -43,7 +43,7 @@ fn string<'a>(kat: &'a Value, name: &str) -> (&'a str, &'a str) {
 fn sync_json(kat: &Value) -> Value {
     json!({
         "object": "sync",
-        "profile": { "id": USER_ID, "email": s(kat, "email"), "key": s(kat, "protected_key_argon2id") },
+        "profile": { "id": USER_ID, "email": kat_str(kat, "email"), "key": kat_str(kat, "protected_key_argon2id") },
         "folders": [{ "id": FOLDER, "name": string(kat, "folder_name").1, "revisionDate": REV }],
         "ciphers": [
             {
@@ -89,7 +89,7 @@ async fn server(kat: &Value, sync_calls: u64) -> MockServer {
         .and(body_string_contains("grant_type=password"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "access_token": ACCESS, "refresh_token": REFRESH, "expires_in": 3600,
-            "token_type": "Bearer", "Key": s(kat, "protected_key_argon2id"),
+            "token_type": "Bearer", "Key": kat_str(kat, "protected_key_argon2id"),
             "Kdf": 1, "KdfIterations": 3, "KdfMemory": 16, "KdfParallelism": 4,
         })))
         .expect(1)
@@ -136,7 +136,7 @@ fn ow_cmd(dir: &Path) -> Command {
 fn ow(dir: &Path, session: Option<&str>, args: &[&str]) -> Output {
     let mut cmd = ow_cmd(dir);
     cmd.args(args)
-        .env("OW_TEST_PASSWORD", s(&kat(), "password"))
+        .env("OW_TEST_PASSWORD", kat_str(&kat(), "password"))
         .stdin(std::process::Stdio::null());
     if let Some(key) = session {
         cmd.env("BW_SESSION", key);
@@ -173,7 +173,7 @@ fn state_bytes(dir: &Path) -> Vec<u8> {
 fn contains(haystack: &[u8], needle: &str) -> bool {
     haystack
         .windows(needle.len())
-        .any(|w| w == needle.as_bytes())
+        .any(|window| window == needle.as_bytes())
 }
 
 /// `config server` and `login`; returns the session key.
@@ -185,7 +185,7 @@ fn login(dir: &Path, server: &MockServer) -> String {
         None,
         &[
             "login",
-            s(&kat, "email"),
+            kat_str(&kat, "email"),
             "--passwordenv",
             "OW_TEST_PASSWORD",
             "--raw",
@@ -206,7 +206,7 @@ async fn login_read_sync_lock_unlock_logout() {
 
     let status = json_out(&ow(&dir, session, &["status"]));
     assert_eq!(status["status"], "unlocked");
-    assert_eq!(status["userEmail"], s(&kat, "email"));
+    assert_eq!(status["userEmail"], kat_str(&kat, "email"));
     assert_eq!(status["userId"], USER_ID);
     assert_eq!(status["serverUrl"], server.uri());
 
@@ -245,7 +245,7 @@ async fn login_read_sync_lock_unlock_logout() {
     );
     let totp = ok(&ow(&dir, session, &["get", "totp", PLAIN_ID]));
     assert_eq!(totp.len(), 6);
-    assert!(totp.bytes().all(|b| b.is_ascii_digit()));
+    assert!(totp.bytes().all(|byte| byte.is_ascii_digit()));
     let item = json_out(&ow(&dir, session, &["get", "item", PLAIN_ID]));
     assert_eq!(item["login"]["uris"][0]["uri"], string(&kat, "uri").0);
     assert!(
@@ -265,7 +265,7 @@ async fn login_read_sync_lock_unlock_logout() {
         string(&kat, "username").0,
         string(&kat, "totp").0,
         string(&kat, "name").0,
-        s(&kat, "password"),
+        kat_str(&kat, "password"),
         ACCESS,
         REFRESH,
         key.as_str(),

@@ -20,10 +20,10 @@ pub fn list(ctx: &Ctx, object: ListObject, filter: &Filter, common: &Common) -> 
             let (readable, skipped) = items::readable(&sync);
             let (found, mut failed) = items::select(&dec, &readable, filter);
             let mut out = Vec::with_capacity(found.len());
-            for c in found {
-                match dec.item(c) {
+            for cipher in found {
+                match dec.item(cipher) {
                     Ok(item) => out.push(item),
-                    Err(_) => failed.push(c.id.clone()),
+                    Err(_) => failed.push(cipher.id.clone()),
                 }
             }
             report_skipped(skipped, &failed, common);
@@ -32,11 +32,14 @@ pub fn list(ctx: &Ctx, object: ListObject, filter: &Filter, common: &Common) -> 
         ListObject::Folders => {
             let needle = filter.search.as_deref().map(str::to_lowercase);
             let mut out: Vec<FolderOut<'_>> = Vec::new();
-            for f in sync.folders.as_deref().unwrap_or_default() {
-                match dec.folder(f) {
+            for encrypted in sync.folders.as_deref().unwrap_or_default() {
+                match dec.folder(encrypted) {
                     Ok(folder) => out.push(folder),
                     Err(_) => {
-                        output::note(&format!("folder {} could not be decrypted", f.id), common);
+                        output::note(
+                            &format!("folder {} could not be decrypted", encrypted.id),
+                            common,
+                        );
                     }
                 }
             }
@@ -45,8 +48,15 @@ pub fn list(ctx: &Ctx, object: ListObject, filter: &Filter, common: &Common) -> 
                 id: None,
                 name: Plain(SecretString::from("No Folder")),
             });
-            if let Some(n) = needle {
-                out.retain(|f| f.name.0.expose_secret().to_lowercase().contains(&n));
+            if let Some(needle) = needle {
+                out.retain(|folder| {
+                    folder
+                        .name
+                        .0
+                        .expose_secret()
+                        .to_lowercase()
+                        .contains(&needle)
+                });
             }
             output::json(&out, common)
         }
@@ -90,12 +100,14 @@ pub fn print_item(
     }
     let login = item.login;
     let field = match object {
-        GetObject::Password => login.and_then(|l| l.password),
-        GetObject::Username => login.and_then(|l| l.username),
+        GetObject::Password => login.and_then(|login| login.password),
+        GetObject::Username => login.and_then(|login| login.username),
         GetObject::Notes => item.notes,
-        GetObject::Uri => login.and_then(|l| l.uris.into_iter().find_map(|u| u.uri)),
+        GetObject::Uri => login.and_then(|login| login.uris.into_iter().find_map(|uri| uri.uri)),
         GetObject::Totp => {
-            let secret = login.and_then(|l| l.totp).ok_or(CliError::NotFound)?;
+            let secret = login
+                .and_then(|login| login.totp)
+                .ok_or(CliError::NotFound)?;
             let code = openwarden::totp::generate(&secret.0, now_secs())?;
             Some(Plain(code.code))
         }

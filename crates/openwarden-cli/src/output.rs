@@ -17,7 +17,7 @@ pub fn json(value: &impl Serialize, common: &Common) -> Result<()> {
     } else {
         serde_json::to_writer(&mut *buf, value)
     };
-    written.map_err(|e| CliError::json("the output", &e))?;
+    written.map_err(|err| CliError::json("the output", &err))?;
     buf.push(b'\n');
     write(&buf)
 }

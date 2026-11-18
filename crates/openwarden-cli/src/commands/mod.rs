@@ -206,13 +206,13 @@ impl Ctx {
         let current = account
             .sealed_tokens
             .as_ref()
-            .map(|t| keys.open_tokens(t, now))
+            .map(|sealed| keys.open_tokens(sealed, now))
             .transpose()?;
         let fresh = match current {
-            Some(s) if !s.is_expired() => return Ok(s),
-            Some(s) if s.refresh_token().is_some() => {
-                let rt = s.refresh_token().ok_or(CliError::LoginExpired)?;
-                client.refresh(rt).await.map_err(expired)?
+            Some(session) if !session.is_expired() => return Ok(session),
+            Some(session) if session.refresh_token().is_some() => {
+                let refresh_token = session.refresh_token().ok_or(CliError::LoginExpired)?;
+                client.refresh(refresh_token).await.map_err(expired)?
             }
             _ => match &account.api_client_id {
                 Some(id) => client
@@ -261,12 +261,12 @@ impl Ctx {
 }
 
 /// A login that no longer works means logging in again.
-fn expired(e: openwarden::Error) -> CliError {
-    match e {
+fn expired(err: openwarden::Error) -> CliError {
+    match err {
         openwarden::Error::Status {
             status: 400 | 401, ..
         } => CliError::LoginExpired,
-        e => e.into(),
+        other => other.into(),
     }
 }
 
@@ -276,7 +276,7 @@ fn api_key(expected: Option<&String>) -> Result<ApiKey> {
     let client_id = std::env::var("BW_CLIENTID").map_err(|_| {
         CliError::Usage("set BW_CLIENTID and BW_CLIENTSECRET to the personal API key")
     })?;
-    if expected.is_some_and(|e| *e != client_id) {
+    if expected.is_some_and(|expected_id| *expected_id != client_id) {
         return Err(CliError::Usage(
             "BW_CLIENTID is not the API key this account logged in with",
         ));
@@ -299,17 +299,17 @@ fn read_password(src: &PasswordSource) -> Result<SecretString> {
                 .map_err(|_| CliError::Usage("the --passwordenv variable is not set"))?,
         )
     } else if let Some(path) = &src.file {
-        Zeroizing::new(std::fs::read_to_string(path).map_err(|e| CliError::io(path, e))?)
+        Zeroizing::new(std::fs::read_to_string(path).map_err(|err| CliError::io(path, err))?)
     } else if std::io::stdin().is_terminal() {
         return Err(CliError::Usage(
             "pass the master password with --passwordenv, --passwordfile or stdin",
         ));
     } else {
-        let mut s = Zeroizing::new(String::new());
+        let mut input = Zeroizing::new(String::new());
         std::io::stdin()
-            .read_to_string(&mut s)
+            .read_to_string(&mut input)
             .map_err(CliError::Stdin)?;
-        s
+        input
     };
     let line = text.lines().next().unwrap_or_default();
     if line.is_empty() {
@@ -319,42 +319,53 @@ fn read_password(src: &PasswordSource) -> Result<SecretString> {
 }
 
 fn parse_sync(body: &[u8]) -> Result<SyncResponse> {
-    serde_json::from_slice(body).map_err(|e| CliError::json("the sync response", &e))
+    serde_json::from_slice(body).map_err(|err| CliError::json("the sync response", &err))
 }
 
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+        .map_or(0, |elapsed| {
+            i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX)
+        })
 }
 
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
+        .map_or(0, |elapsed| elapsed.as_secs())
 }
 
-/// `2024-05-01T12:00:00.000Z` for ms since the epoch.
+/// `2024-05-01T12:00:00.000Z` for ms since the epoch. No date crate is in
+/// the dependency tree, so the civil date is computed here (Howard
+/// Hinnant's `civil_from_days`, from his public description), with known
+/// dates in the tests.
 fn iso8601(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let millis = ms.rem_euclid(1000);
     let days = secs.div_euclid(86_400);
-    let rem = secs.rem_euclid(86_400);
-    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + i64::from(month <= 2);
+    let secs_of_day = secs.rem_euclid(86_400);
+    // Days since 0000-03-01, so leap days fall at the end of a year.
+    let shifted_days = days + 719_468;
+    let era = shifted_days.div_euclid(146_097);
+    let day_of_era = shifted_days.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    // Months counted from March.
+    let month_from_march = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_from_march + 2) / 5 + 1;
+    let month = if month_from_march < 10 {
+        month_from_march + 3
+    } else {
+        month_from_march - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
     format!(
         "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{millis:03}Z",
-        rem / 3600,
-        rem / 60 % 60,
-        rem % 60
+        secs_of_day / 3600,
+        secs_of_day / 60 % 60,
+        secs_of_day % 60
     )
 }
 
@@ -367,5 +378,8 @@ mod tests {
         assert_eq!(iso8601(0), "1970-01-01T00:00:00.000Z");
         assert_eq!(iso8601(951_782_400_123), "2000-02-29T00:00:00.123Z");
         assert_eq!(iso8601(1_779_105_600_000), "2026-05-18T12:00:00.000Z");
+        assert_eq!(iso8601(946_684_799_999), "1999-12-31T23:59:59.999Z");
+        assert_eq!(iso8601(4_107_542_400_000), "2100-03-01T00:00:00.000Z");
+        assert_eq!(iso8601(-1), "1969-12-31T23:59:59.999Z");
     }
 }

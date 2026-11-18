@@ -61,8 +61,8 @@ pub enum CliError {
 
 impl CliError {
     /// A JSON error, by position only: serde's message can quote the input.
-    pub fn json(what: &'static str, e: &serde_json::Error) -> Self {
-        Self::Json(what, e.line(), e.column())
+    pub fn json(what: &'static str, err: &serde_json::Error) -> Self {
+        Self::Json(what, err.line(), err.column())
     }
 
     /// An I/O error on `path`.
@@ -77,7 +77,7 @@ impl CliError {
 impl Coded for CliError {
     fn code(&self) -> &str {
         match self {
-            Self::Vault(e) => match e {
+            Self::Vault(err) => match err {
                 openwarden::Error::Http { .. } => "http",
                 openwarden::Error::Status { .. } => "status",
                 openwarden::Error::MacMismatch => "mac_mismatch",

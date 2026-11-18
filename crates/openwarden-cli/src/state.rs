@@ -34,7 +34,7 @@ const CACHE_FILE: &str = "openwarden-vault.enc";
 /// never touches), else `$XDG_CONFIG_HOME/openwarden` or
 /// `~/.config/openwarden`.
 pub fn app_dir() -> PathBuf {
-    let var = |name| std::env::var_os(name).filter(|v| !v.is_empty());
+    let var = |name| std::env::var_os(name).filter(|value| !value.is_empty());
     if let Some(dir) = var("OPENWARDEN_APPDATA_DIR").or_else(|| var("BITWARDENCLI_APPDATA_DIR")) {
         return PathBuf::from(dir);
     }
@@ -91,9 +91,10 @@ pub struct Account {
 }
 
 impl fmt::Debug for Account {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let sealed = |s: &Option<EncString>| s.as_ref().map(|_| "[sealed]");
-        f.debug_struct("Account")
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let sealed = |sealed_key: &Option<EncString>| sealed_key.as_ref().map(|_| "[sealed]");
+        formatter
+            .debug_struct("Account")
             .field("email", &self.email)
             .field("user_id", &self.user_id)
             .field("kdf", &self.kdf)
@@ -131,16 +132,16 @@ impl Store {
         let path = self.state_path();
         match fs::read(&path) {
             Ok(bytes) => {
-                serde_json::from_slice(&bytes).map_err(|e| CliError::json("the state file", &e))
+                serde_json::from_slice(&bytes).map_err(|err| CliError::json("the state file", &err))
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(State::default()),
-            Err(e) => Err(CliError::io(path, e)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(State::default()),
+            Err(err) => Err(CliError::io(path, err)),
         }
     }
 
     pub fn save(&self, state: &State) -> Result<()> {
         let bytes =
-            serde_json::to_vec_pretty(state).map_err(|e| CliError::json("the state", &e))?;
+            serde_json::to_vec_pretty(state).map_err(|err| CliError::json("the state", &err))?;
         self.write(&self.state_path(), &bytes)
     }
 
@@ -149,8 +150,8 @@ impl Store {
         let path = self.cache_path();
         match fs::read_to_string(&path) {
             Ok(text) => Ok(Some(text.trim().parse()?)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(CliError::io(path, e)),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(err) => Err(CliError::io(path, err)),
         }
     }
 
@@ -161,7 +162,7 @@ impl Store {
     pub fn remove_cache(&self) -> Result<()> {
         let path = self.cache_path();
         match fs::remove_file(&path) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(CliError::io(path, e)),
+            Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(CliError::io(path, err)),
             _ => Ok(()),
         }
     }
@@ -170,11 +171,11 @@ impl Store {
     fn write(&self, path: &Path, bytes: &[u8]) -> Result<()> {
         create_private_dir(&self.dir)?;
         let tmp = path.with_extension("tmp");
-        let mut file = private_file(&tmp).map_err(|e| CliError::io(&tmp, e))?;
+        let mut file = private_file(&tmp).map_err(|err| CliError::io(&tmp, err))?;
         file.write_all(bytes)
             .and_then(|()| file.sync_all())
-            .map_err(|e| CliError::io(&tmp, e))?;
-        fs::rename(&tmp, path).map_err(|e| CliError::io(path, e))
+            .map_err(|err| CliError::io(&tmp, err))?;
+        fs::rename(&tmp, path).map_err(|err| CliError::io(path, err))
     }
 }
 
@@ -185,12 +186,12 @@ fn create_private_dir(dir: &Path) -> Result<()> {
         .recursive(true)
         .mode(0o700)
         .create(dir)
-        .map_err(|e| CliError::io(dir, e))
+        .map_err(|err| CliError::io(dir, err))
 }
 
 #[cfg(not(unix))]
 fn create_private_dir(dir: &Path) -> Result<()> {
-    fs::create_dir_all(dir).map_err(|e| CliError::io(dir, e))
+    fs::create_dir_all(dir).map_err(|err| CliError::io(dir, err))
 }
 
 #[cfg(unix)]
@@ -215,14 +216,16 @@ fn private_file(path: &Path) -> std::io::Result<fs::File> {
 
 /// A new random device identifier (a version 4 UUID).
 pub fn new_device_id() -> Result<String> {
-    let mut b = [0u8; 16];
-    getrandom::fill(&mut b).map_err(|_| CliError::Usage("no system randomness"))?;
-    b[6] = (b[6] & 0x0f) | 0x40;
-    b[8] = (b[8] & 0x3f) | 0x80;
-    let hex: String = b.iter().fold(String::with_capacity(32), |mut s, x| {
-        let _ = write!(s, "{x:02x}");
-        s
-    });
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|_| CliError::Usage("no system randomness"))?;
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    let hex: String = bytes
+        .iter()
+        .fold(String::with_capacity(32), |mut hex, byte| {
+            let _ = write!(hex, "{byte:02x}");
+            hex
+        });
     Ok(format!(
         "{}-{}-{}-{}-{}",
         &hex[..8],
@@ -266,8 +269,8 @@ impl SessionKey {
 }
 
 impl fmt::Debug for SessionKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("SessionKey([redacted])")
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SessionKey([redacted])")
     }
 }
 
@@ -279,8 +282,8 @@ pub struct Keys {
 }
 
 impl fmt::Debug for Keys {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("Keys([redacted])")
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("Keys([redacted])")
     }
 }
 
@@ -318,11 +321,11 @@ impl Keys {
             access_token: Cow::Borrowed(session.access_token().expose_secret()),
             refresh_token: session
                 .refresh_token()
-                .map(|t| Cow::Borrowed(t.expose_secret())),
+                .map(|token| Cow::Borrowed(token.expose_secret())),
             expires_at: now_secs.saturating_add(session.expires_in().as_secs()),
         };
         let json = Zeroizing::new(
-            serde_json::to_vec(&wire).map_err(|e| CliError::json("the tokens", &e))?,
+            serde_json::to_vec(&wire).map_err(|err| CliError::json("the tokens", &err))?,
         );
         Ok(EncString::encrypt(&self.state, &json)?)
     }
@@ -330,8 +333,8 @@ impl Keys {
     /// The session the tokens make; it may have expired.
     pub fn open_tokens(&self, sealed: &EncString, now_secs: u64) -> Result<Session> {
         let json = sealed.decrypt(&self.state)?;
-        let wire: TokensWire<'_> =
-            serde_json::from_slice(&json).map_err(|e| CliError::json("the sealed tokens", &e))?;
+        let wire: TokensWire<'_> = serde_json::from_slice(&json)
+            .map_err(|err| CliError::json("the sealed tokens", &err))?;
         let left = core::time::Duration::from_secs(wire.expires_at.saturating_sub(now_secs));
         let session = Session::from_token(SecretString::from(wire.access_token.as_ref()), left)?;
         Ok(match wire.refresh_token {

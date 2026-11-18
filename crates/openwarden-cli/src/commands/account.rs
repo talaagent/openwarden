@@ -51,17 +51,17 @@ fn derive(password: &SecretString, email: &str, kdf: &Kdf) -> Result<MasterKey> 
 /// The user key, or [`CliError::BadPassword`].
 fn open_user_key(master: &MasterKey, protected_key: &str) -> Result<UserKey> {
     let protected: EncString = protected_key.parse()?;
-    master.unlock(&protected).map_err(|e| match e {
+    master.unlock(&protected).map_err(|err| match err {
         openwarden::Error::MacMismatch => CliError::BadPassword,
-        e => e.into(),
+        other => other.into(),
     })
 }
 
 /// A wrong password (or two-step login) is a refused grant.
-fn refused(e: openwarden::Error) -> CliError {
-    match e {
+fn refused(err: openwarden::Error) -> CliError {
+    match err {
         openwarden::Error::Status { status: 400, .. } => CliError::LoginRefused,
-        e => e.into(),
+        other => other.into(),
     }
 }
 
@@ -72,12 +72,12 @@ pub async fn login(
     src: &PasswordSource,
     common: &Common,
 ) -> Result<()> {
-    if let Some(a) = &ctx.state.account {
-        return Err(CliError::AlreadyLoggedIn(a.email.clone()));
+    if let Some(account) = &ctx.state.account {
+        return Err(CliError::AlreadyLoggedIn(account.email.clone()));
     }
     let email = email
         .map(str::trim)
-        .filter(|e| !e.is_empty())
+        .filter(|email| !email.is_empty())
         .ok_or(CliError::Usage("login needs the account's email"))?
         .to_owned();
     let password = read_password(src)?;
@@ -118,8 +118,8 @@ pub async fn login(
 
 /// `login --apikey`: logs in with the personal API key; `unlock` next.
 pub async fn login_api_key(ctx: &mut Ctx, common: &Common) -> Result<()> {
-    if let Some(a) = &ctx.state.account {
-        return Err(CliError::AlreadyLoggedIn(a.email.clone()));
+    if let Some(account) = &ctx.state.account {
+        return Err(CliError::AlreadyLoggedIn(account.email.clone()));
     }
     let key = api_key(None)?;
     let client = ctx.client()?;
@@ -256,9 +256,11 @@ pub fn status(ctx: &Ctx, common: &Common) -> Result<()> {
     output::json(
         &StatusOut {
             server_url: ctx.state.server_url.as_deref(),
-            last_sync: account.and_then(|a| a.last_sync_ms).map(iso8601),
-            user_email: account.map(|a| a.email.as_str()),
-            user_id: account.and_then(|a| a.user_id.as_deref()),
+            last_sync: account
+                .and_then(|account| account.last_sync_ms)
+                .map(iso8601),
+            user_email: account.map(|account| account.email.as_str()),
+            user_id: account.and_then(|account| account.user_id.as_deref()),
             status,
         },
         common,

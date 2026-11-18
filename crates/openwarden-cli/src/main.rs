@@ -46,10 +46,10 @@ enum WriteObject {
 }
 
 #[allow(clippy::needless_pass_by_value)] // bpaf's `parse` hands over the String
-fn list_object(s: String) -> Result<ListObject, UnknownValue> {
+fn list_object(value: String) -> Result<ListObject, UnknownValue> {
     parse_choice(
         "object",
-        &s,
+        &value,
         &[
             ("items", ListObject::Items),
             ("folders", ListObject::Folders),
@@ -58,10 +58,10 @@ fn list_object(s: String) -> Result<ListObject, UnknownValue> {
 }
 
 #[allow(clippy::needless_pass_by_value)] // bpaf's `parse` hands over the String
-fn get_object(s: String) -> Result<GetObject, UnknownValue> {
+fn get_object(value: String) -> Result<GetObject, UnknownValue> {
     parse_choice(
         "object",
-        &s,
+        &value,
         &[
             ("item", GetObject::Item),
             ("password", GetObject::Password),
@@ -74,8 +74,8 @@ fn get_object(s: String) -> Result<GetObject, UnknownValue> {
 }
 
 #[allow(clippy::needless_pass_by_value)] // bpaf's `parse` hands over the String
-fn write_object(s: String) -> Result<WriteObject, UnknownValue> {
-    parse_choice("object", &s, &[("item", WriteObject::Item)])
+fn write_object(value: String) -> Result<WriteObject, UnknownValue> {
+    parse_choice("object", &value, &[("item", WriteObject::Item)])
 }
 
 /// Options every command takes.
@@ -286,12 +286,12 @@ fn main() -> ExitCode {
         .build()
     {
         Ok(rt) => rt,
-        Err(e) => return report(&error::CliError::Output(e)),
+        Err(err) => return report(&error::CliError::Output(err)),
     };
     #[allow(clippy::disallowed_methods)] // the one runtime, in main
     let result = runtime.block_on(commands::run(command));
     match result {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => report(&e),
+        Err(err) => report(&err),
     }
 }
