@@ -38,7 +38,9 @@ nix develop -c bash scripts/gen-fixtures.sh | diff -u crates/openwarden/tests/fi
 ## Releases
 
 `release-plz.toml` writes CHANGELOG.md and tags `v<version>` with a GitHub
-release. With `release_always = false`, only a merged release PR
+release. openwarden-cli shares the workspace version and is released with
+the library, with its own changelog (`crates/openwarden-cli/CHANGELOG.md`),
+an `openwarden-cli-v<version>` tag and a GitHub release. With `release_always = false`, only a merged release PR
 publishes. Review the version bump (cargo-semver-checks runs on the
 release PR) and the changelog, and merge only after CI passes.
 
