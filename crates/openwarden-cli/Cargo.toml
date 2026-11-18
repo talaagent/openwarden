@@ -18,10 +18,10 @@ path = "src/main.rs"
 
 [dependencies]
 openwarden.workspace = true
-base64 = "0.22"
+base64 = "0.23"
 bpaf = { version = "0.9", features = ["derive"] }
 bpaf-kit = { version = "0.2.1", features = ["man"] }
-getrandom = "0.3"
+getrandom = "0.4"
 jiff = { version = "0.2", default-features = false, features = ["std"] }
 secrecy = { version = "0.10", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
