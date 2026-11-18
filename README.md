@@ -165,9 +165,9 @@ Early (0.1); the API may change between minor versions.
 - [ ] Other item types (secure notes, cards, identities, SSH keys): synced,
       but not decrypted yet
 - [ ] Two-step login
-- [ ] A CLI (planned, no code yet): the `openwarden-cli` crate, installing
-      the `ow` command, a fast `bw`-style CLI with an encrypted local cache
-      and the unlocked key held in the OS keyring
+- [x] A CLI: the [`openwarden-cli`](https://github.com/talaagent/openwarden/tree/main/crates/openwarden-cli)
+      crate installs `ow`, a fast `bw`-compatible CLI with an encrypted
+      local cache, unlocked by a session key in `BW_SESSION`
 
 ### Servers
 
