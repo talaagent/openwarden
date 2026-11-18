@@ -58,6 +58,32 @@ pub struct ItemOut<'a> {
     pub collection_ids: &'a [String],
 }
 
+impl ItemOut<'_> {
+    /// Drops the secrets (`--redact`): notes, the login's password and TOTP
+    /// seed, password history, field values, and every card, identity and
+    /// SSH key value (their keys stay, as nulls). Names, usernames, URIs,
+    /// ids and dates stay.
+    pub fn redact(&mut self) {
+        self.notes = None;
+        self.password_history = None;
+        if let Some(login) = &mut self.login {
+            login.password = None;
+            login.totp = None;
+        }
+        for map in [&mut self.card, &mut self.identity, &mut self.ssh_key]
+            .into_iter()
+            .flatten()
+        {
+            for value in map.values_mut() {
+                *value = None;
+            }
+        }
+        for field in &mut self.fields {
+            field.value = None;
+        }
+    }
+}
+
 /// `bw`'s login JSON.
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
