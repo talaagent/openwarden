@@ -3,10 +3,18 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      rust-overlay,
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -14,12 +22,30 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
+      forAllSystems =
+        f:
+        nixpkgs.lib.genAttrs systems (
+          system:
+          f (
+            import nixpkgs {
+              inherit system;
+              overlays = [ (import rust-overlay) ];
+            }
+          )
+        );
+      # The toolchain pinned in rust-toolchain.toml, from rust-overlay.
+      rustToolchainFor = pkgs: pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+      rustPlatformFor =
+        pkgs:
+        pkgs.makeRustPlatform {
+          cargo = rustToolchainFor pkgs;
+          rustc = rustToolchainFor pkgs;
+        };
     in
     {
       packages = forAllSystems (pkgs: {
         # The library, built and tested (cargo test runs in checkPhase).
-        openwarden = pkgs.rustPlatform.buildRustPackage {
+        openwarden = (rustPlatformFor pkgs).buildRustPackage {
           pname = "openwarden";
           version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).workspace.package.version;
           src = pkgs.lib.fileset.toSource {
@@ -53,11 +79,7 @@
         default = pkgs.mkShell {
           name = "openwarden";
           packages = [
-            pkgs.cargo
-            pkgs.rustc
-            pkgs.clippy
-            pkgs.rustfmt
-            pkgs.rust-analyzer
+            (rustToolchainFor pkgs)
             pkgs.cargo-deny
             pkgs.cargo-nextest
             # scripts/gen-fixtures.sh: the reference implementation the
@@ -65,7 +87,7 @@
             pkgs.openssl
             pkgs.xxd
           ];
-          RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
+          RUST_SRC_PATH = "${rustToolchainFor pkgs}/lib/rustlib/src/rust/library";
         };
       });
 
