@@ -42,6 +42,14 @@ The MSRV is the workspace `rust-version` (1.88); CI checks and tests on it.
   inputs (deterministic; CI regenerates it and diffs).
 - `tests/flow.rs`: the HTTP flows against a wiremock server.
 - `tests/uri_match.rs`: URI matching tables.
+- `crates/openwarden-cli`: the `ow` binary (bpaf-kit). `src/main.rs` has the
+  command line; `src/state.rs` the state directory and the sealed keys,
+  tokens and cache; `src/commands/` the commands; `src/items.rs` the `bw`
+  item JSON. It refuses secrets on argv. `tests/cli.rs` runs the binary
+  against wiremock and checks that nothing in the state directory is
+  plaintext.
+- `scripts/bench/`: hyperfine benchmarks of `ow` against `bw`, on a
+  throwaway Vaultwarden in Docker (loopback only).
 
 ## Conventions
 
