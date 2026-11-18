@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/talaagent/openwarden/compare/v0.1.0...v0.1.1) - 2026-11-18
+
+### Added
+
+- support no_std + alloc behind a default std feature ([#3](https://github.com/talaagent/openwarden/pull/3))
+
+### Other
+
+- Add ow, a fast bw-compatible CLI (openwarden-cli) ([#7](https://github.com/talaagent/openwarden/pull/7))
+- Add password login, refresh tokens, the revision date, raw sync bodies and item deletion ([#6](https://github.com/talaagent/openwarden/pull/6))
+
 ## [0.1.0](https://github.com/talaagent/openwarden/releases/tag/v0.1.0) - 2026-11-15
 
 First release.
