@@ -108,12 +108,14 @@ master password.
 
 - **Prelogin and KDFs**: PBKDF2-SHA256 and Argon2id with the server's
   parameters, checked against a `KdfPolicy`; HKDF stretching.
-- **Login**: the `client_credentials` grant with a personal API key and
-  device identifiers. Bitwarden's US and EU clouds, or a self-hosted base
-  URL.
+- **Login**: the `client_credentials` grant with a personal API key, or
+  the `password` grant with the master password hash (never the password),
+  and device identifiers; refresh tokens. Bitwarden's US and EU clouds, or
+  a self-hosted base URL.
 - **Unlock**: from the protected symmetric key (`EncString` type 2), or from
   a user key the caller kept; the user key can be exported for sealing.
-- **Sync**: `/api/sync`, personal items and folders. Logins keep their
+- **Sync**: `/api/sync`, personal items and folders, and the account's
+  revision date (to skip a sync when nothing changed). Logins keep their
   `EncString`s: names, usernames, URIs and TOTP secrets are decrypted on
   request, and a password only by `Vault::password`. Per-item keys are
   supported.
@@ -155,12 +157,14 @@ Early (0.1); the API may change between minor versions.
 
 - [x] API-key login, prelogin, PBKDF2 and Argon2id, unlock, sync
 - [x] Login items: lazy decryption, per-item keys, URI matching, TOTP
-- [x] Creating and updating logins, with confirmation and password history
+- [x] Creating, updating and deleting logins, with confirmation and
+      password history
+- [x] Master-password login (the `password` grant), refresh tokens
 - [ ] Organizations and collections (organization keys, `EncString` RSA
       types): next
 - [ ] Other item types (secure notes, cards, identities, SSH keys): synced,
       but not decrypted yet
-- [ ] Master-password login (the `password` grant) and two-factor
+- [ ] Two-step login
 - [ ] A CLI (planned, no code yet): the `openwarden-cli` crate, installing
       the `ow` command, a fast `bw`-style CLI with an encrypted local cache
       and the unlocked key held in the OS keyring

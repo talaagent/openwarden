@@ -830,6 +830,158 @@ async fn create_login() {
     assert_eq!(vault.logins().len(), 3);
 }
 
+#[tokio::test]
+async fn password_login_refresh_and_revision_date() {
+    let kat = kat();
+    let server = MockServer::start().await;
+    let master = MasterKey::from_bytes(bytes(&kat, "master_key_pbkdf2").try_into().unwrap());
+    let password = SecretString::from(s(&kat, "password"));
+    // The known-answer hash, form-encoded.
+    assert_eq!(
+        master.password_hash(&password).expose_secret(),
+        s(&kat, "master_password_hash")
+    );
+    let encoded_hash = s(&kat, "master_password_hash")
+        .replace('/', "%2F")
+        .replace('=', "%3D");
+    Mock::given(method("POST"))
+        .and(path("/identity/connect/token"))
+        .and(body_string_contains("grant_type=password"))
+        .and(body_string_contains("scope=api+offline_access"))
+        .and(body_string_contains("client_id=cli"))
+        .and(body_string_contains(format!("password={encoded_hash}")))
+        .and(body_string_contains("deviceType=25"))
+        .and(header("Auth-Email", "a2F0LXVzZXJAZXhhbXBsZS5pbnZhbGlk"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "tok-pw", "expires_in": 3600, "token_type": "Bearer",
+            "refresh_token": "ref-1",
+            "Key": s(&kat, "protected_key"),
+            "Kdf": 0, "KdfIterations": 600_000,
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/identity/connect/token"))
+        .and(body_string_contains("grant_type=refresh_token"))
+        .and(body_string_contains("refresh_token=ref-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "access_token": "tok-refreshed", "expires_in": 3600, "token_type": "Bearer",
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/accounts/revision-date"))
+        .and(header("Authorization", "Bearer tok-refreshed"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!(1_767_225_600_000_i64)))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client(&server);
+    let session = client
+        .login_password(s(&kat, "email"), &master, &password)
+        .await
+        .unwrap();
+    assert_eq!(session.access_token().expose_secret(), "tok-pw");
+    assert_eq!(session.refresh_token().unwrap().expose_secret(), "ref-1");
+    assert_eq!(
+        session.kdf(),
+        Some(Kdf::Pbkdf2 {
+            iterations: 600_000
+        })
+    );
+    assert!(session.expires_in().as_secs() > 3500);
+    let debug = format!("{session:?}");
+    assert!(
+        !debug.contains("tok-pw") && !debug.contains("ref-1"),
+        "{debug}"
+    );
+
+    let refreshed = client
+        .refresh(session.refresh_token().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(refreshed.access_token().expose_secret(), "tok-refreshed");
+    // No new refresh token in the answer: the old one is kept.
+    assert_eq!(refreshed.refresh_token().unwrap().expose_secret(), "ref-1");
+    assert_eq!(
+        client.revision_date(&refreshed).await.unwrap(),
+        1_767_225_600_000
+    );
+}
+
+#[tokio::test]
+async fn sync_body_is_the_raw_response() {
+    let kat = kat();
+    let server = MockServer::start().await;
+    let body = sync_json(
+        &kat,
+        REV1,
+        s(&kat, "protected_key"),
+        string(&kat, "empty").1,
+    );
+    Mock::given(method("GET"))
+        .and(path("/api/sync"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&body))
+        .mount(&server)
+        .await;
+    let raw = client(&server).sync_body(&session()).await.unwrap();
+    assert_eq!(serde_json::from_slice::<Value>(&raw).unwrap(), body);
+    assert_eq!(
+        SyncData::from_json(&raw).unwrap().protected_key(),
+        Some(s(&kat, "protected_key"))
+    );
+}
+
+#[tokio::test]
+async fn delete_needs_confirmation() {
+    let kat = kat();
+    let server = MockServer::start().await;
+    Mock::given(method("PUT"))
+        .and(path(format!("/api/ciphers/{PLAIN_ID}/delete")))
+        .and(header("Authorization", "Bearer test-token"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(format!("/api/ciphers/{KEYED_ID}")))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let client = client(&server);
+    let mut vault = unlocked(&kat);
+    let plain = CipherId::new(PLAIN_ID);
+    let keyed = CipherId::new(KEYED_ID);
+    assert!(matches!(
+        vault
+            .delete_item(&client, &session(), &plain, false, None)
+            .await,
+        Err(Error::UpdateRefused(_))
+    ));
+    let wrong = vault.confirm_item(&keyed).unwrap();
+    assert!(matches!(
+        vault
+            .delete_item(&client, &session(), &plain, false, Some(wrong))
+            .await,
+        Err(Error::ConfirmationMismatch(_))
+    ));
+    let ok = vault.confirm_item(&plain).unwrap();
+    vault
+        .delete_item(&client, &session(), &plain, false, Some(ok))
+        .await
+        .unwrap();
+    let ok = vault.confirm_item(&keyed).unwrap();
+    vault
+        .delete_item(&client, &session(), &keyed, true, Some(ok))
+        .await
+        .unwrap();
+    assert_eq!(vault.logins().len(), 0);
+}
+
 #[test]
 fn server_urls() {
     assert!(ServerUrls::self_hosted("https://vault.example.com/").is_ok());
