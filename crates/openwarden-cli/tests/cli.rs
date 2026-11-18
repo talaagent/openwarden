@@ -248,6 +248,43 @@ async fn login_read_sync_lock_unlock_logout() {
     assert!(totp.bytes().all(|byte| byte.is_ascii_digit()));
     let item = json_out(&ow(&dir, session, &["get", "item", PLAIN_ID]));
     assert_eq!(item["login"]["uris"][0]["uri"], string(&kat, "uri").0);
+    assert_eq!(item["login"]["password"], string(&kat, "password").0);
+
+    // --redact (or OW_REDACT) keeps the item's shape and drops its secrets.
+    let redacted = |args: &[&str]| {
+        let mut cmd = ow_cmd(&dir);
+        cmd.args(args)
+            .env("BW_SESSION", &key)
+            .env("OW_REDACT", "1")
+            .stdin(std::process::Stdio::null());
+        cmd.output().unwrap()
+    };
+    for out in [
+        ow(&dir, session, &["get", "item", PLAIN_ID, "--redact"]),
+        ow(&dir, session, &["list", "items", "--redact"]),
+        redacted(&["get", "item", PLAIN_ID]),
+        redacted(&["list", "items"]),
+    ] {
+        let text = ok(&out);
+        assert!(!text.contains(string(&kat, "password").0));
+        let value: Value = serde_json::from_str(&text).unwrap();
+        let item = if value.is_array() { &value[0] } else { &value };
+        assert_eq!(item["id"], PLAIN_ID);
+        assert_eq!(item["login"]["username"], string(&kat, "username").0);
+        assert_eq!(item["login"]["password"], Value::Null);
+        assert_eq!(item["login"]["totp"], Value::Null);
+        assert_eq!(item["notes"], Value::Null);
+        assert_eq!(item["passwordHistory"], Value::Null);
+    }
+    for object in ["password", "totp", "notes"] {
+        let out = redacted(&["get", object, PLAIN_ID]);
+        assert!(!out.status.success(), "{object}");
+        assert!(out.stdout.is_empty(), "{object}");
+    }
+    assert_eq!(
+        ok(&redacted(&["get", "username", PLAIN_ID])),
+        string(&kat, "username").0
+    );
     assert!(
         !ow(&dir, session, &["get", "password", ORG_ID])
             .status
