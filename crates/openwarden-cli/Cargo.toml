@@ -1,0 +1,40 @@
+[package]
+name = "openwarden-cli"
+description = "ow: a fast, bw-compatible command-line client for Bitwarden and Vaultwarden, with an encrypted local cache"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["bitwarden", "vaultwarden", "password-manager", "cli"]
+categories = ["command-line-utilities", "cryptography"]
+
+[[bin]]
+name = "ow"
+path = "src/main.rs"
+
+[dependencies]
+openwarden.workspace = true
+base64 = "0.22"
+bpaf = { version = "0.9", features = ["derive"] }
+bpaf-kit = { version = "0.2.1", features = ["man"] }
+getrandom = "0.3"
+secrecy = { version = "0.10", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt"] }
+zeroize = "1"
+
+[build-dependencies]
+bpaf-kit-build = "0.2.1"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+wiremock = "0.6"
+
+[lints]
+workspace = true

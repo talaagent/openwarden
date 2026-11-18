@@ -21,3 +21,8 @@ git_tag_enable = true
 git_tag_name = "v{{ version }}"
 git_release_enable = true
 git_release_name = "v{{ version }}"
+
+# The `ow` CLI: released by hand for now (not published by release-plz).
+[[package]]
+name = "openwarden-cli"
+release = false
