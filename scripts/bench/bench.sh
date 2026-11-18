@@ -39,7 +39,7 @@ sessions() {
   local p b session
   for p in "${progs[@]}"; do
     b=${bin[$p]}
-    if ! "$b" login --check >/dev/null 2>&1; then
+    if ! "$b" status 2>/dev/null | jq -e '.status != "unauthenticated"' >/dev/null; then
       "$b" config server "$BENCH_URL" >/dev/null
       "$b" login "$BENCH_EMAIL" --passwordenv BENCH_PASSWORD --raw >/dev/null
     fi
