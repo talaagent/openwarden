@@ -167,7 +167,11 @@ impl fmt::Debug for KeyState {
 pub struct LoginInfo {
     /// The item's id.
     pub id: CipherId,
-    /// Its folder.
+    /// Owning organization, if any.
+    pub organization_id: Option<String>,
+    /// Collections containing this item.
+    pub collection_ids: Vec<String>,
+    /// Personal folder containing this item.
     pub folder_id: Option<FolderId>,
     /// The server's revision date (RFC 3339).
     pub revision_date: Option<String>,
@@ -295,6 +299,8 @@ struct CipherWire {
     #[serde(default)]
     organization_id: Option<String>,
     #[serde(default)]
+    collection_ids: Option<Vec<String>>,
+    #[serde(default)]
     folder_id: Option<String>,
     #[serde(rename = "type")]
     kind: u8,
@@ -325,6 +331,8 @@ struct StoredLogin {
 }
 
 struct StoredCipher {
+    organization_id: Option<String>,
+    collection_ids: Vec<String>,
     id: CipherId,
     folder_id: Option<FolderId>,
     revision: Option<String>,
@@ -342,10 +350,10 @@ fn nonempty(s: Option<String>) -> Option<String> {
 }
 
 impl StoredCipher {
-    /// `None` for items that aren't personal and live.
+    /// `None` for deleted or malformed items.
     fn parse(raw: Value) -> Option<Self> {
         let w: CipherWire = serde_json::from_value(raw.clone()).ok()?;
-        if w.organization_id.is_some() || w.deleted_date.is_some() {
+        if w.deleted_date.is_some() {
             return None;
         }
         let login = w.login.map(|l| StoredLogin {
@@ -363,6 +371,8 @@ impl StoredCipher {
                 .collect(),
         });
         Some(Self {
+            organization_id: w.organization_id,
+            collection_ids: w.collection_ids.unwrap_or_default(),
             id: CipherId(w.id),
             folder_id: w.folder_id.map(FolderId),
             revision: w.revision_date,
@@ -378,6 +388,8 @@ impl StoredCipher {
         let login = self.login.as_ref().filter(|_| self.kind == LOGIN)?;
         Some(LoginInfo {
             id: self.id.clone(),
+            organization_id: self.organization_id.clone(),
+            collection_ids: self.collection_ids.clone(),
             folder_id: self.folder_id.clone(),
             revision_date: self.revision.clone(),
             has_password: login.password.is_some(),
@@ -387,10 +399,10 @@ impl StoredCipher {
 
     /// The key this item's fields are encrypted with: its own item key,
     /// or the user key.
-    fn item_key(&self, user: &UserKey) -> Result<SymmetricKey> {
+    fn item_key(&self, user: &SymmetricKey) -> Result<SymmetricKey> {
         match &self.key {
-            Some(k) => k.parse::<EncString>()?.decrypt_key(user.symmetric()),
-            None => Ok(user.symmetric().clone()),
+            Some(k) => k.parse::<EncString>()?.decrypt_key(user),
+            None => Ok(user.clone()),
         }
     }
 
@@ -450,6 +462,7 @@ pub struct Vault {
     state: KeyState,
     folders: Vec<(FolderId, Option<EncString>)>,
     ciphers: Vec<StoredCipher>,
+    organizations: alloc::collections::BTreeMap<String, SymmetricKey>,
 }
 
 impl fmt::Debug for Vault {
@@ -473,6 +486,7 @@ impl Vault {
             state,
             folders: Vec::new(),
             ciphers: Vec::new(),
+            organizations: alloc::collections::BTreeMap::new(),
         }
     }
 
@@ -502,6 +516,7 @@ impl Vault {
     /// Drops the user key (zeroizing it). Items stay, encrypted.
     pub fn lock(&mut self) {
         self.key = None;
+        self.organizations.clear();
     }
 
     /// What the key was unlocked from, to keep beside the sealed key.
@@ -570,8 +585,7 @@ impl Vault {
     }
 
     /// Takes a sync: checks the keys are unchanged, then replaces the
-    /// folders and items (personal, not deleted; organization items are
-    /// skipped in v1).
+    /// folders and items (personal and organization, not deleted).
     ///
     /// # Errors
     ///
@@ -596,14 +610,34 @@ impl Vault {
                 return Err(self.key_changed(KeyChange::UserKey));
             }
         }
+        let organizations = crate::crypto::organization_keys(
+            key.symmetric(),
+            data.private_key.as_deref(),
+            &data.organizations,
+        )?;
+        self.organizations = organizations;
         self.folders = data.folders;
         self.ciphers = data
             .ciphers
             .into_iter()
             .filter_map(StoredCipher::parse)
+            .filter(|cipher| {
+                cipher
+                    .organization_id
+                    .as_ref()
+                    .is_none_or(|id| self.organizations.contains_key(id))
+            })
             .collect();
         tracing::debug!(items = self.ciphers.len(), "openwarden: sync applied");
         Ok(())
+    }
+
+    fn cipher_key(&self, cipher: &StoredCipher) -> Result<&SymmetricKey> {
+        let user = self.user_key()?;
+        match &cipher.organization_id {
+            Some(id) => self.organizations.get(id).ok_or(Error::InvalidKey),
+            None => Ok(user.symmetric()),
+        }
     }
 
     fn cipher(&self, id: &CipherId) -> Result<&StoredCipher> {
@@ -625,11 +659,14 @@ impl Vault {
     ///
     /// [`Error::Locked`].
     pub fn find_logins(&self, page: &str, opts: &MatchOptions) -> Result<Vec<LoginInfo>> {
-        let user = self.user_key()?;
+        self.user_key()?;
         let mut out = Vec::new();
         for c in &self.ciphers {
             let Some(info) = c.info() else { continue };
-            match Self::cipher_matches(c, user, page, opts) {
+            match self
+                .cipher_key(c)
+                .and_then(|key| Self::cipher_matches(c, key, page, opts))
+            {
                 Ok(true) => out.push(info),
                 Ok(false) => {}
                 Err(_) => {
@@ -642,7 +679,7 @@ impl Vault {
 
     fn cipher_matches(
         c: &StoredCipher,
-        user: &UserKey,
+        user: &SymmetricKey,
         page: &str,
         opts: &MatchOptions,
     ) -> Result<bool> {
@@ -657,6 +694,16 @@ impl Vault {
         Ok(false)
     }
 
+    /// Decrypts an attachment key wrapped by this item's effective key.
+    ///
+    /// # Errors
+    ///
+    /// As [`name`](Self::name), or an invalid encrypted attachment key.
+    pub fn attachment_key(&self, id: &CipherId, encrypted: &EncString) -> Result<SymmetricKey> {
+        let cipher = self.cipher(id)?;
+        encrypted.decrypt_key(&cipher.item_key(self.cipher_key(cipher)?)?)
+    }
+
     /// An item's name.
     ///
     /// # Errors
@@ -664,7 +711,7 @@ impl Vault {
     /// [`Error::Locked`], [`Error::NotFound`], and decryption errors.
     pub fn name(&self, id: &CipherId) -> Result<SecretString> {
         let c = self.cipher(id)?;
-        let key = c.item_key(self.user_key()?)?;
+        let key = c.item_key(self.cipher_key(c)?)?;
         Ok(decrypt_opt(c.name.as_ref(), &key)?.unwrap_or_else(|| SecretString::from("")))
     }
 
@@ -674,7 +721,7 @@ impl Vault {
         f: impl FnOnce(&StoredLogin) -> Option<&String>,
     ) -> Result<Option<SecretString>> {
         let c = self.cipher(id)?;
-        let key = c.item_key(self.user_key()?)?;
+        let key = c.item_key(self.cipher_key(c)?)?;
         decrypt_opt(f(c.login()?), &key)
     }
 
@@ -724,7 +771,7 @@ impl Vault {
     /// As [`username`](Self::username).
     pub fn uris(&self, id: &CipherId) -> Result<Vec<LoginUri>> {
         let c = self.cipher(id)?;
-        let key = c.item_key(self.user_key()?)?;
+        let key = c.item_key(self.cipher_key(c)?)?;
         let mut out = Vec::new();
         for u in &c.login()?.uris {
             if let Some(uri) = decrypt_opt(u.uri.as_ref(), &key)? {
@@ -901,7 +948,7 @@ impl Vault {
     ) -> Result<Value> {
         let c = self.cipher(id)?;
         let login = c.login()?;
-        let key = c.item_key(self.user_key()?)?;
+        let key = c.item_key(self.cipher_key(c)?)?;
         // Every change to an existing item needs the user's confirmation:
         // a new URI or TOTP secret is as dangerous as a new password (an
         // added URI makes the item match, and fill, another site).
@@ -1004,6 +1051,102 @@ fn rfc3339(secs: u64, millis: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mixed_organization_sync_roundtrip() {
+        use base64::Engine as _;
+        use rsa::pkcs8::EncodePrivateKey;
+        let mut random = rand::rng();
+        let private = rsa::PrivateKey::new(&mut random, 2048).unwrap();
+        let public = rsa::PublicKey::from(&private);
+        let user = SymmetricKey::generate().unwrap();
+        let organization = SymmetricKey::generate().unwrap();
+        let item = SymmetricKey::generate().unwrap();
+        let attachment = SymmetricKey::generate().unwrap();
+        let encrypted_private =
+            EncString::encrypt(&user, private.to_pkcs8_der().unwrap().as_bytes()).unwrap();
+        for kind in [3, 4] {
+            let encrypted_org = if kind == 3 {
+                public.encrypt(
+                    &mut random,
+                    rsa::Oaep::<sha2::Sha256>::new(),
+                    organization.to_bytes().as_ref(),
+                )
+            } else {
+                public.encrypt(
+                    &mut random,
+                    rsa::Oaep::<sha1::Sha1>::new(),
+                    organization.to_bytes().as_ref(),
+                )
+            }
+            .unwrap();
+            let body = serde_json::to_vec(&serde_json::json!({
+                "profile": {
+                    "id": "synthetic-user",
+                    "privateKey": encrypted_private.to_string(),
+                    "organizations": [{"id": "synthetic-org", "key": format!("{kind}.{}", B64.encode(encrypted_org))}]
+                },
+                "ciphers": [
+                    {"id": "personal", "type": 1, "name": EncString::encrypt(&user, b"personal").unwrap(), "login": {}},
+                    {"id": "shared", "type": 1, "organizationId": "synthetic-org",
+                     "collectionIds": ["synthetic-collection"], "key": EncString::encrypt(&organization, item.to_bytes().as_ref()).unwrap(),
+                     "name": EncString::encrypt(&item, b"shared").unwrap(),
+                     "login": {"password": EncString::encrypt(&item, b"synthetic-password").unwrap()}},
+                    {"id": "shared-direct", "type": 1, "organizationId": "synthetic-org",
+                     "name": EncString::encrypt(&organization, b"direct").unwrap(), "login": {}}
+                ]
+            })).unwrap();
+            let mut vault = Vault::open(
+                UserKey::from_bytes(user.to_bytes().as_ref()).unwrap(),
+                KeyState {
+                    protected_key: String::new(),
+                    kdf: None,
+                },
+            );
+            vault
+                .apply_sync(SyncData::from_json(&body).unwrap())
+                .unwrap();
+            assert_eq!(vault.logins().len(), 3);
+            assert_eq!(
+                vault
+                    .name(&CipherId::new("personal"))
+                    .unwrap()
+                    .expose_secret(),
+                "personal"
+            );
+            assert_eq!(
+                vault
+                    .name(&CipherId::new("shared-direct"))
+                    .unwrap()
+                    .expose_secret(),
+                "direct"
+            );
+            let shared = CipherId::new("shared");
+            assert_eq!(
+                vault.password(&shared).unwrap().unwrap().expose_secret(),
+                "synthetic-password"
+            );
+            let info = vault
+                .logins()
+                .into_iter()
+                .find(|info| info.id == shared)
+                .unwrap();
+            assert_eq!(info.organization_id.as_deref(), Some("synthetic-org"));
+            assert_eq!(info.collection_ids, ["synthetic-collection"]);
+            let wrapped_attachment =
+                EncString::encrypt(&item, attachment.to_bytes().as_ref()).unwrap();
+            assert_eq!(
+                *vault
+                    .attachment_key(&shared, &wrapped_attachment)
+                    .unwrap()
+                    .to_bytes(),
+                *attachment.to_bytes()
+            );
+            vault.lock();
+            assert!(vault.organizations.is_empty());
+            assert!(vault.name(&shared).is_err());
+        }
+    }
 
     #[test]
     fn rfc3339_formats() {

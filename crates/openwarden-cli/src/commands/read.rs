@@ -14,7 +14,7 @@ pub fn list(ctx: &Ctx, object: ListObject, filter: &Filter, common: &Common) -> 
     let keys = ctx.keys()?;
     let body = ctx.vault_body(&keys)?;
     let sync = parse_sync(&body)?;
-    let dec = Decryptor::new(&keys.user);
+    let dec = Decryptor::with_sync(&keys.user, &sync)?;
     match object {
         ListObject::Items => {
             let (readable, skipped) = items::readable(&sync);
@@ -68,13 +68,7 @@ pub fn list(ctx: &Ctx, object: ListObject, filter: &Filter, common: &Common) -> 
     }
 }
 
-fn report_skipped(org_items: usize, failed: &[String], common: &Common) {
-    if org_items > 0 {
-        output::note(
-            &format!("{org_items} organization items left out (not supported yet)"),
-            common,
-        );
-    }
+fn report_skipped(_org_items: usize, failed: &[String], common: &Common) {
     for id in failed {
         output::note(&format!("item {id} could not be decrypted"), common);
     }
@@ -96,7 +90,7 @@ pub fn print_item(
 ) -> Result<()> {
     let body = ctx.vault_body(keys)?;
     let sync = parse_sync(&body)?;
-    let dec = Decryptor::new(&keys.user);
+    let dec = Decryptor::with_sync(&keys.user, &sync)?;
     let (readable, _) = items::readable(&sync);
     let cipher = items::find_one(&dec, &readable, query)?;
     if common.redact

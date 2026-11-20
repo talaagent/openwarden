@@ -26,7 +26,7 @@ mod vault;
 
 #[cfg(feature = "std")]
 pub use client::{ApiKey, Client, Device, ServerUrls, Session};
-pub use crypto::{EncString, SymmetricKey};
+pub use crypto::{EncString, OrganizationKey, SymmetricKey, organization_keys};
 pub use error::{Error, KeyChange, Result};
 pub use kdf::{Kdf, KdfPolicy, MasterKey};
 pub use secrecy::{ExposeSecret, SecretBox, SecretString};

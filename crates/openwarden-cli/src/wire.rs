@@ -26,6 +26,10 @@ pub struct Profile {
     pub id: String,
     #[serde(alias = "Email")]
     pub email: String,
+    #[serde(default, alias = "PrivateKey")]
+    pub private_key: Option<String>,
+    #[serde(default, alias = "Organizations")]
+    pub organizations: Vec<openwarden::OrganizationKey>,
     /// The protected symmetric key.
     #[serde(default, alias = "Key")]
     pub key: Option<String>,
@@ -45,6 +49,8 @@ pub struct Folder {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Cipher {
+    #[serde(default, alias = "Attachments")]
+    pub attachments: Option<Vec<Attachment>>,
     #[serde(alias = "Id")]
     pub id: String,
     #[serde(default, alias = "OrganizationId")]
@@ -179,4 +185,19 @@ mod tests {
             );
         }
     }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    #[serde(alias = "Id")]
+    pub id: String,
+    #[serde(default, alias = "FileName")]
+    pub file_name: Option<String>,
+    #[serde(default, alias = "Key")]
+    pub key: Option<String>,
+    #[serde(default, alias = "Size")]
+    pub size: Option<String>,
+    #[serde(default, alias = "Url")]
+    pub url: Option<String>,
 }
