@@ -85,7 +85,7 @@ struct Presence {
     clippy::zero_sized_map_values,
     reason = "discard secret values while reading JSON field names"
 )]
-fn read_item() -> Result<ItemIn> {
+fn read_item(common: &Common) -> Result<ItemIn> {
     if std::io::stdin().is_terminal() {
         return Err(CliError::Usage(
             "pipe the item's base64 JSON (`ow encode`) on stdin",
@@ -129,7 +129,7 @@ fn read_item() -> Result<ItemIn> {
             "writes require organizationId and collectionIds, or OW_ORGANIZATION_ID and OW_COLLECTION_ID defaults",
         ));
     }
-    if std::env::var("OW_ENFORCE_TARGET").is_ok_and(|s| s == "1") {
+    if common.enforce_target || std::env::var("OW_ENFORCE_TARGET").is_ok_and(|s| s == "1") {
         let org = std::env::var("OW_ORGANIZATION_ID")
             .ok()
             .filter(|s| !s.is_empty());
@@ -195,7 +195,7 @@ fn open_vault(ctx: &Ctx, keys: &Keys) -> Result<Vault> {
 /// `create item`: a login, from base64 JSON on stdin.
 pub async fn create(ctx: &mut Ctx, common: &Common) -> Result<()> {
     let keys = ctx.keys()?;
-    let item = read_item()?;
+    let item = read_item(common)?;
     if non_empty(item.notes.as_ref()).is_some() {
         return Err(CliError::Unsupported("notes in `create`"));
     }
@@ -340,7 +340,7 @@ fn is_empty(update: &LoginUpdate) -> bool {
 /// `edit item ID`: from base64 JSON on stdin.
 pub async fn edit(ctx: &mut Ctx, id: &str, common: &Common) -> Result<()> {
     let keys = ctx.keys()?;
-    let item = read_item()?;
+    let item = read_item(common)?;
     let update = {
         let body = ctx.vault_body(&keys)?;
         let sync = super::parse_sync(&body)?;

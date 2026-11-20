@@ -546,7 +546,7 @@ async fn enforced_grant_target_refuses_overrides_and_outside_edits_without_http(
             }
             let mut child = command
                 .env("BW_SESSION", &key)
-                .env("OW_ENFORCE_TARGET", "1")
+                .arg("--enforce-target")
                 .env("OW_ORGANIZATION_ID", "fixture-org")
                 .env("OW_COLLECTION_ID", "fixture-collection")
                 .stdin(std::process::Stdio::piped())
