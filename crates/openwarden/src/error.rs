@@ -45,7 +45,7 @@ pub enum Error {
         source: reqwest::Error,
     },
     /// The server answered with an error status.
-    #[error("{endpoint} returned HTTP {status}{}", oauth_error.as_deref().map(|e| format!(" ({e})")).unwrap_or_default())]
+    #[error("{endpoint} returned HTTP {status}{}{}", oauth_error.as_deref().map(|e| format!(" ({e})")).unwrap_or_default(), if *status == 403 { "; access forbidden: check the account's organization and collection permissions" } else { "" })]
     Status {
         /// Which call failed.
         endpoint: &'static str,

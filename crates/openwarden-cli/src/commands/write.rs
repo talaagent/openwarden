@@ -38,6 +38,8 @@ struct ItemIn {
     #[serde(default)]
     organization_id: Option<String>,
     #[serde(default)]
+    collection_ids: Vec<String>,
+    #[serde(default)]
     favorite: bool,
     #[serde(default)]
     login: Option<LoginIn>,
@@ -81,13 +83,31 @@ fn read_item() -> Result<ItemIn> {
         B64.decode(compact.as_bytes())
             .map_err(|_| CliError::Base64)?,
     );
-    let item: ItemIn =
+    let mut item: ItemIn =
         serde_json::from_slice(&json).map_err(|err| CliError::json("the item JSON", &err))?;
+    if item.organization_id.is_none() {
+        item.organization_id = std::env::var("OW_ORGANIZATION_ID")
+            .ok()
+            .filter(|s| !s.is_empty());
+    }
+    if item.collection_ids.is_empty()
+        && let Ok(collection) = std::env::var("OW_COLLECTION_ID")
+        && !collection.is_empty()
+    {
+        item.collection_ids.push(collection);
+    }
+    if std::env::var("OW_REQUIRE_TARGET").is_ok_and(|s| s == "1")
+        && (item.organization_id.is_none() || item.collection_ids.is_empty())
+    {
+        return Err(CliError::Usage(
+            "writes require organizationId and collectionIds, or OW_ORGANIZATION_ID and OW_COLLECTION_ID defaults",
+        ));
+    }
     if item.kind != LOGIN {
         return Err(CliError::Unsupported("items other than logins"));
     }
-    if item.organization_id.is_some() {
-        return Err(CliError::Unsupported("organization items"));
+    if item.organization_id.is_none() && !item.collection_ids.is_empty() {
+        return Err(CliError::Usage("collections require an organizationId"));
     }
     Ok(item)
 }
@@ -164,7 +184,13 @@ pub async fn create(ctx: &mut Ctx, common: &Common) -> Result<()> {
     let client = ctx.client()?;
     let session = ctx.session(&client, &keys).await?;
     let mut vault = open_vault(ctx, &keys)?;
-    let id = vault.create_login(&client, &session, draft).await?;
+    let id = if let Some(organization) = &item.organization_id {
+        vault
+            .create_organization_login(&client, &session, draft, organization, &item.collection_ids)
+            .await?
+    } else {
+        vault.create_login(&client, &session, draft).await?
+    };
     ctx.sync(&client, &keys, &session, true).await?;
     print_item(ctx, &keys, GetObject::Item, id.as_str(), common)
 }
@@ -176,6 +202,13 @@ fn same(new: Option<&SecretString>, old: Option<&Plain>) -> bool {
 /// What `edit` can change: the name, username, password and TOTP, and new
 /// URIs. Anything else that differs is refused rather than dropped.
 fn diff(item: &ItemIn, current: &ItemOut<'_>) -> Result<LoginUpdate> {
+    if item.organization_id.as_deref() != current.organization_id
+        || item.collection_ids.as_slice() != current.collection_ids
+    {
+        return Err(CliError::Unsupported(
+            "moving an item between organizations or collections",
+        ));
+    }
     if item.kind != current.kind {
         return Err(CliError::Unsupported("changing an item's type"));
     }
@@ -258,7 +291,7 @@ pub async fn edit(ctx: &mut Ctx, id: &str, common: &Common) -> Result<()> {
             .into_iter()
             .find(|cipher| cipher.id.eq_ignore_ascii_case(id))
             .ok_or(CliError::NotFound)?;
-        let current = Decryptor::new(&keys.user).item(cipher)?;
+        let current = Decryptor::with_sync(&keys.user, &sync)?.item(cipher)?;
         diff(&item, &current)?
     };
     if !is_empty(&update) {

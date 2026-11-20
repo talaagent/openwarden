@@ -508,12 +508,26 @@ impl Client {
         session: &Session,
         body: &serde_json::Value,
     ) -> Result<serde_json::Value> {
-        let url = format!("{}/ciphers", self.urls.api);
+        let organization = body
+            .get("organizationId")
+            .is_some_and(serde_json::Value::is_string);
+        let (endpoint, payload) = if organization {
+            (
+                "ciphers/create",
+                serde_json::json!({
+                    "cipher": body,
+                    "collectionIds": body["collectionIds"],
+                }),
+            )
+        } else {
+            ("ciphers", body.clone())
+        };
+        let url = format!("{}/{endpoint}", self.urls.api);
         let req = self
             .http
             .post(url)
             .bearer_auth(session.access_token.expose_secret())
-            .json(body);
+            .json(&payload);
         self.send("cipher create", req).await
     }
 
