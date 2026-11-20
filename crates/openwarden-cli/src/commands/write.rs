@@ -129,6 +129,24 @@ fn read_item() -> Result<ItemIn> {
             "writes require organizationId and collectionIds, or OW_ORGANIZATION_ID and OW_COLLECTION_ID defaults",
         ));
     }
+    if std::env::var("OW_ENFORCE_TARGET").is_ok_and(|s| s == "1") {
+        let org = std::env::var("OW_ORGANIZATION_ID")
+            .ok()
+            .filter(|s| !s.is_empty());
+        let collection = std::env::var("OW_COLLECTION_ID")
+            .ok()
+            .filter(|s| !s.is_empty());
+        if org.is_none()
+            || collection.is_none()
+            || item.organization_id != org
+            || item.collection_ids.len() != 1
+            || item.collection_ids.first() != collection.as_ref()
+        {
+            return Err(CliError::Usage(
+                "write target is outside the configured grant scope",
+            ));
+        }
+    }
     if item.kind != LOGIN {
         return Err(CliError::Unsupported("items other than logins"));
     }

@@ -510,3 +510,74 @@ async fn broker_patch_preserves_omitted_secrets_and_metadata() {
     assert_ne!(sent["login"]["username"], original["login"]["username"]);
     let _ = std::fs::remove_dir_all(dir);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn enforced_grant_target_refuses_overrides_and_outside_edits_without_http() {
+    use std::io::Write as _;
+    let server = server(&kat(), 1).await;
+    let dir = app_dir("grant-target");
+    let key = login(&dir, &server);
+    let secret = "fixture-confidential-password";
+    for (org, collections) in [
+        ("other-org", vec!["fixture-collection"]),
+        ("fixture-org", vec!["other-collection"]),
+        (
+            "fixture-org",
+            vec!["fixture-collection", "other-collection"],
+        ),
+        // The target is allowed, but the existing personal item is outside it.
+        ("fixture-org", vec!["fixture-collection"]),
+    ] {
+        for verb in ["create", "edit"] {
+            if verb == "create" && org == "fixture-org" && collections == ["fixture-collection"] {
+                continue;
+            }
+            let item = json!({"type":1,"organizationId":org,"collectionIds":collections,"name":"fixture","login":{"password":secret}});
+            let encoded = ok(&ow_stdin(
+                &dir,
+                &key,
+                &["encode"],
+                item.to_string().as_bytes(),
+            ));
+            let mut command = ow_cmd(&dir);
+            command.args([verb, "item"]);
+            if verb == "edit" {
+                command.arg(PLAIN_ID);
+            }
+            let mut child = command
+                .env("BW_SESSION", &key)
+                .env("OW_ENFORCE_TARGET", "1")
+                .env("OW_ORGANIZATION_ID", "fixture-org")
+                .env("OW_COLLECTION_ID", "fixture-collection")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(encoded.as_bytes())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(!output.status.success());
+            assert_eq!(output.stdout, [] as [u8; 0]);
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                error.contains("scope") || error.contains("moving an item"),
+                "{error}"
+            );
+            assert!(!error.contains(secret) && !error.contains(&encoded));
+        }
+    }
+    assert!(
+        !server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .any(|r| r.url.path().starts_with("/api/ciphers"))
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}

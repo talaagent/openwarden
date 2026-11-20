@@ -100,3 +100,13 @@ With `OW_PATCH_INPUT=1`, edits preserve omitted fields, including existing
 passwords, notes and URI lists. This lets a brokered caller update a field
 without reading the existing secrets. Explicit clearing and unsupported
 changes are still refused; organization and collection targets must match.
+
+`OW_ENFORCE_TARGET=1` turns the two target environment values into a mandatory
+single-collection scope, rather than defaults. Both must be configured. An
+explicit different organization, different collection, or additional collection
+is refused before HTTP, including for edits; the existing item's membership
+must also match. Broker policy must supply these variables, not caller input.
+Organization writes additionally require synced collection metadata identifying
+the same organization and explicitly allowing edits (`readOnly=false` and
+`hidePasswords=false`). Unknown collections, missing permissions, and foreign
+collections fail locally; the server still authorizes every request.
