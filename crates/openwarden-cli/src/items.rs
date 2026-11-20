@@ -29,6 +29,8 @@ impl core::fmt::Debug for Plain {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemOut<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<Vec<AttachmentOut<'a>>>,
     pub password_history: Option<Vec<HistoryOut<'a>>>,
     pub revision_date: Option<&'a str>,
     pub creation_date: Option<&'a str>,
@@ -65,6 +67,11 @@ impl ItemOut<'_> {
     /// ids and dates stay.
     pub fn redact(&mut self) {
         self.notes = None;
+        if let Some(attachments) = &mut self.attachments {
+            for attachment in attachments {
+                attachment.key = None;
+            }
+        }
         self.password_history = None;
         if let Some(login) = &mut self.login {
             login.password = None;
@@ -141,6 +148,7 @@ pub struct FolderOut<'a> {
 /// Decrypts with the user key (and each item's own key).
 pub struct Decryptor<'k> {
     user: &'k SymmetricKey,
+    organizations: std::collections::BTreeMap<String, SymmetricKey>,
 }
 
 /// What a search looks at: the name, the username and the URIs.
@@ -171,20 +179,41 @@ fn camel(key: &str) -> String {
 
 impl<'k> Decryptor<'k> {
     pub fn new(user: &'k SymmetricKey) -> Self {
-        Self { user }
+        Self {
+            user,
+            organizations: std::collections::BTreeMap::new(),
+        }
+    }
+
+    pub fn with_sync(user: &'k SymmetricKey, sync: &SyncResponse) -> Result<Self> {
+        Ok(Self {
+            user,
+            organizations: openwarden::organization_keys(
+                user,
+                sync.profile.private_key.as_deref(),
+                &sync.profile.organizations,
+            )?,
+        })
     }
 
     /// The key an item's fields are under: its own, or the user key.
-    fn item_key(&self, cipher: &Cipher) -> openwarden::Result<Cow<'k, SymmetricKey>> {
+    fn item_key(&self, cipher: &Cipher) -> openwarden::Result<Cow<'_, SymmetricKey>> {
+        let parent = match &cipher.organization_id {
+            Some(id) => self
+                .organizations
+                .get(id)
+                .ok_or(openwarden::Error::InvalidKey)?,
+            None => self.user,
+        };
         match cipher
             .key
             .as_deref()
             .filter(|item_key| !item_key.is_empty())
         {
             Some(item_key) => Ok(Cow::Owned(
-                item_key.parse::<EncString>()?.decrypt_key(self.user)?,
+                item_key.parse::<EncString>()?.decrypt_key(parent)?,
             )),
-            None => Ok(Cow::Borrowed(self.user)),
+            None => Ok(Cow::Borrowed(parent)),
         }
     }
 
@@ -276,25 +305,9 @@ impl<'k> Decryptor<'k> {
                 })
             })
             .collect::<openwarden::Result<_>>()?;
-        let history = cipher
-            .password_history
-            .as_ref()
-            .map(|history| {
-                history
-                    .iter()
-                    .filter_map(|entry| {
-                        text(key, Some(&entry.password)).transpose().map(|pw| {
-                            Ok(HistoryOut {
-                                last_used_date: entry.last_used_date.as_deref(),
-                                password: Plain(pw?),
-                            })
-                        })
-                    })
-                    .collect::<openwarden::Result<_>>()
-            })
-            .transpose()?;
         Ok(ItemOut {
-            password_history: history,
+            attachments: Self::attachments(cipher, key)?,
+            password_history: Self::history(cipher, key)?,
             revision_date: cipher.revision_date.as_deref(),
             creation_date: cipher.creation_date.as_deref(),
             deleted_date: cipher.deleted_date.as_deref(),
@@ -317,6 +330,65 @@ impl<'k> Decryptor<'k> {
             fields,
             collection_ids: cipher.collection_ids.as_deref().unwrap_or_default(),
         })
+    }
+
+    fn history<'a>(
+        cipher: &'a Cipher,
+        key: &SymmetricKey,
+    ) -> openwarden::Result<Option<Vec<HistoryOut<'a>>>> {
+        cipher
+            .password_history
+            .as_ref()
+            .map(|history| {
+                history
+                    .iter()
+                    .filter_map(|entry| {
+                        text(key, Some(&entry.password)).transpose().map(|pw| {
+                            Ok(HistoryOut {
+                                last_used_date: entry.last_used_date.as_deref(),
+                                password: Plain(pw?),
+                            })
+                        })
+                    })
+                    .collect::<openwarden::Result<_>>()
+            })
+            .transpose()
+    }
+
+    fn attachments<'a>(
+        cipher: &'a Cipher,
+        key: &SymmetricKey,
+    ) -> openwarden::Result<Option<Vec<AttachmentOut<'a>>>> {
+        cipher
+            .attachments
+            .as_ref()
+            .map(|attachments| {
+                use base64::Engine as _;
+                attachments
+                    .iter()
+                    .map(|attachment| {
+                        let attachment_key = attachment
+                            .key
+                            .as_deref()
+                            .map(|encrypted| {
+                                let decrypted = encrypted.parse::<EncString>()?.decrypt_key(key)?;
+                                Ok::<_, openwarden::Error>(Plain(SecretString::from(
+                                    base64::engine::general_purpose::STANDARD
+                                        .encode(decrypted.to_bytes().as_ref()),
+                                )))
+                            })
+                            .transpose()?;
+                        Ok::<_, openwarden::Error>(AttachmentOut {
+                            id: &attachment.id,
+                            file_name: plain(key, attachment.file_name.as_deref())?,
+                            key: attachment_key,
+                            size: attachment.size.as_deref(),
+                            url: attachment.url.as_deref(),
+                        })
+                    })
+                    .collect::<openwarden::Result<Vec<_>>>()
+            })
+            .transpose()
     }
 
     /// A folder, as `bw list folders` prints it.
@@ -370,15 +442,10 @@ impl Summary {
     }
 }
 
-/// The items `ow` can read: personal ones (organization items need the
-/// organization keys, not supported yet). Returns them and how many were
-/// left out.
+/// All synced personal and organization items.
 pub fn readable(sync: &SyncResponse) -> (Vec<&Cipher>, usize) {
     let all = sync.ciphers.as_deref().unwrap_or_default();
-    let personal: Vec<&Cipher> = all
-        .iter()
-        .filter(|cipher| cipher.organization_id.is_none())
-        .collect();
+    let personal: Vec<&Cipher> = all.iter().collect();
     let skipped = all.len() - personal.len();
     (personal, skipped)
 }
@@ -456,6 +523,41 @@ mod tests {
     use super::*;
 
     #[test]
+    fn organization_items_search_and_get() {
+        let user = SymmetricKey::generate().unwrap();
+        let organization = SymmetricKey::generate().unwrap();
+        let item_key = SymmetricKey::generate().unwrap();
+        let attachment_key = SymmetricKey::generate().unwrap();
+        let cipher: Cipher = serde_json::from_slice(&serde_json::to_vec(&serde_json::json!({
+            "id": "shared", "type": 1, "organizationId": "synthetic-org",
+            "collectionIds": ["synthetic-collection"],
+            "name": EncString::encrypt(&item_key, b"shared example").unwrap(),
+            "key": EncString::encrypt(&organization, item_key.to_bytes().as_ref()).unwrap(),
+            "attachments": [{
+                "id": "attachment", "fileName": EncString::encrypt(&item_key, b"example.txt").unwrap(),
+                "key": EncString::encrypt(&item_key, attachment_key.to_bytes().as_ref()).unwrap()
+            }]
+        })).unwrap()).unwrap();
+        let mut decryptor = Decryptor::new(&user);
+        decryptor
+            .organizations
+            .insert("synthetic-org".into(), organization);
+        let summary = decryptor.summary(&cipher).unwrap();
+        assert_eq!(summary.name.unwrap().expose_secret(), "shared example");
+        let mut item = decryptor.item(&cipher).unwrap();
+        assert_eq!(item.organization_id, Some("synthetic-org"));
+        assert_eq!(item.collection_ids, ["synthetic-collection"]);
+        let attachment = &item.attachments.as_ref().unwrap()[0];
+        assert_eq!(
+            attachment.file_name.as_ref().unwrap().0.expose_secret(),
+            "example.txt"
+        );
+        assert!(attachment.key.is_some());
+        item.redact();
+        assert!(item.attachments.as_ref().unwrap()[0].key.is_none());
+    }
+
+    #[test]
     fn camel_case_keys() {
         assert_eq!(camel("CardholderName"), "cardholderName");
         assert_eq!(camel("brand"), "brand");
@@ -479,4 +581,14 @@ mod tests {
             "[redacted]"
         );
     }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentOut<'a> {
+    pub id: &'a str,
+    pub file_name: Option<Plain>,
+    pub key: Option<Plain>,
+    pub size: Option<&'a str>,
+    pub url: Option<&'a str>,
 }

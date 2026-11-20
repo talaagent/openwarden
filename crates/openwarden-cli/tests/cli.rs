@@ -210,7 +210,7 @@ async fn login_read_sync_lock_unlock_logout() {
     assert_eq!(status["userId"], USER_ID);
     assert_eq!(status["serverUrl"], server.uri());
 
-    // The org item is left out (with a note), the deleted one too.
+    // The org item has no profile key and reports a decryption failure; deleted items stay out.
     let out = ow(&dir, session, &["list", "items"]);
     let items = json_out(&out);
     assert_eq!(items.as_array().unwrap().len(), 1);
@@ -218,7 +218,10 @@ async fn login_read_sync_lock_unlock_logout() {
     assert_eq!(items[0]["name"], string(&kat, "name").0);
     assert_eq!(items[0]["folderId"], FOLDER);
     assert_eq!(items[0]["login"]["username"], string(&kat, "username").0);
-    assert!(String::from_utf8_lossy(&out.stderr).contains("1 organization items left out"));
+    assert!(
+        String::from_utf8_lossy(&out.stderr)
+            .contains(&format!("item {ORG_ID} could not be decrypted"))
+    );
 
     let searched = json_out(&ow(
         &dir,
