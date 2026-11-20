@@ -19,6 +19,8 @@ struct ProfileWire {
     key: Option<String>,
     #[serde(default)]
     private_key: Option<String>,
+    #[serde(default)]
+    organizations: Vec<crate::crypto::OrganizationKey>,
 }
 
 #[derive(Deserialize)]
@@ -44,6 +46,7 @@ pub struct SyncData {
     pub(crate) user_id: String,
     pub(crate) protected_key: Option<String>,
     pub(crate) private_key: Option<String>,
+    pub(crate) organizations: Vec<crate::crypto::OrganizationKey>,
     pub(crate) folders: Vec<(FolderId, Option<EncString>)>,
     pub(crate) ciphers: Vec<serde_json::Value>,
 }
@@ -81,6 +84,7 @@ impl SyncData {
             user_id: wire.profile.id,
             protected_key: wire.profile.key,
             private_key: wire.profile.private_key,
+            organizations: wire.profile.organizations,
             folders: wire
                 .folders
                 .into_iter()

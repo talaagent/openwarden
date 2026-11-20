@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/openwarden", "crates/openwarden-cli"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.2.0"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/talaagent/openwarden"
@@ -12,7 +12,7 @@ authors = ["Ian Macalinao <github@igm.pub>"]
 rust-version = "1.88"
 
 [workspace.dependencies]
-openwarden = { path = "crates/openwarden", version = "0.1.1" }
+openwarden = { path = "crates/openwarden", version = "0.2.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -114,7 +114,7 @@ master password.
   a self-hosted base URL.
 - **Unlock**: from the protected symmetric key (`EncString` type 2), or from
   a user key the caller kept; the user key can be exported for sealing.
-- **Sync**: `/api/sync`, personal items and folders, and the account's
+- **Sync**: `/api/sync`, personal and organization items and folders, and the account's
   revision date (to skip a sync when nothing changed). Logins keep their
   `EncString`s: names, usernames, URIs and TOTP secrets are decrypted on
   request, and a password only by `Vault::password`. Per-item keys are
@@ -153,15 +153,14 @@ login, key derivation, unlock, sync, decryption, URI matching and writes.
 
 ## Status and roadmap
 
-Early (0.1); the API may change between minor versions.
+Early (0.2); the API may change between minor versions.
 
 - [x] API-key login, prelogin, PBKDF2 and Argon2id, unlock, sync
 - [x] Login items: lazy decryption, per-item keys, URI matching, TOTP
 - [x] Creating, updating and deleting logins, with confirmation and
       password history
 - [x] Master-password login (the `password` grant), refresh tokens
-- [ ] Organizations and collections (organization keys, `EncString` RSA
-      types): next
+- [x] Organization items and collection ids (RSA-OAEP organization keys)
 - [ ] Other item types (secure notes, cards, identities, SSH keys): synced,
       but not decrypted yet
 - [ ] Two-step login

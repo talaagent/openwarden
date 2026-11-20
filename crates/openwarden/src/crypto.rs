@@ -4,7 +4,8 @@
 //! base64, AES-256-CBC with PKCS#7 padding, and HMAC-SHA256 over
 //! `iv || ciphertext`. The MAC is checked (in constant time) before any
 //! decryption. Types 0 and 1 (no MAC, or a 128-bit key) are refused; the
-//! RSA types (3 to 6) and COSE (7) are not supported in v1.
+//! RSA-OAEP types 3 and 4 are supported for organization keys by
+//! [`organization_keys`]; types 5 to 7 are refused.
 
 use alloc::vec::Vec;
 use core::fmt;
@@ -287,4 +288,65 @@ mod tests {
         let e = EncString::encrypt(&key, b"secret").unwrap();
         assert_eq!(format!("{e:?}"), "EncString(type 2, 16 bytes)");
     }
+}
+
+/// An encrypted organization key from the sync profile.
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrganizationKey {
+    /// Organization id.
+    #[serde(alias = "Id")]
+    pub id: alloc::string::String,
+    /// RSA-OAEP encrypted symmetric key.
+    #[serde(alias = "Key")]
+    pub key: alloc::string::String,
+}
+
+/// Decrypts profile organization keys with the encrypted PKCS#8 private key.
+///
+/// # Errors
+///
+/// Returns a sanitized crypto error for missing, malformed or invalid keys.
+pub fn organization_keys(
+    user: &SymmetricKey,
+    private_key: Option<&str>,
+    organizations: &[OrganizationKey],
+) -> Result<alloc::collections::BTreeMap<alloc::string::String, SymmetricKey>> {
+    use rsa::pkcs8::DecodePrivateKey;
+    use rsa::traits::PublicKeyParts;
+    let mut keys = alloc::collections::BTreeMap::new();
+    if organizations.is_empty() {
+        return Ok(keys);
+    }
+    let private_bytes = private_key
+        .ok_or(Error::InvalidKey)?
+        .parse::<EncString>()?
+        .decrypt(user)?;
+    if private_bytes.len() > 16 * 1024 {
+        return Err(Error::InvalidKey);
+    }
+    let private = rsa::PrivateKey::from_pkcs8_der(&private_bytes).map_err(|_| Error::InvalidKey)?;
+    if private.size() > 1024 {
+        return Err(Error::InvalidKey);
+    }
+    for organization in organizations {
+        let (kind, encoded) = organization
+            .key
+            .split_once('.')
+            .ok_or(Error::MalformedEncString)?;
+        let ciphertext = B64.decode(encoded).map_err(|_| Error::MalformedEncString)?;
+        let plaintext = Zeroizing::new(
+            match kind {
+                "3" => private.decrypt(rsa::Oaep::<sha2::Sha256>::new(), &ciphertext),
+                "4" => private.decrypt(rsa::Oaep::<sha1::Sha1>::new(), &ciphertext),
+                _ => return Err(Error::InvalidKey),
+            }
+            .map_err(|_| Error::InvalidKey)?,
+        );
+        keys.insert(
+            organization.id.clone(),
+            SymmetricKey::from_bytes(&plaintext)?,
+        );
+    }
+    Ok(keys)
 }
