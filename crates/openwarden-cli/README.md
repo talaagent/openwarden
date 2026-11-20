@@ -95,3 +95,8 @@ brokered runs. With `OW_REQUIRE_TARGET=1`, writes without both an organization
 and at least one collection fail before making an API request. These defaults
 are not access controls: the server account's collection permissions apply.
 HTTP 403 means the account needs the appropriate collection write permission.
+
+With `OW_PATCH_INPUT=1`, edits preserve omitted fields, including existing
+passwords, notes and URI lists. This lets a brokered caller update a field
+without reading the existing secrets. Explicit clearing and unsupported
+changes are still refused; organization and collection targets must match.

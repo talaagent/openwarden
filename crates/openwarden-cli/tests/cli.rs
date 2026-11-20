@@ -460,3 +460,53 @@ async fn edit_round_trips_and_delete_trashes() {
     ok(&ow(&dir, Some(&key), &["delete", "item", PLAIN_ID]));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn broker_patch_preserves_omitted_secrets_and_metadata() {
+    use std::io::Write as _;
+    let kat = kat();
+    let server = server(&kat, 2).await;
+    let original = sync_json(&kat)["ciphers"][0].clone();
+    Mock::given(method("PUT"))
+        .and(path(format!("/api/ciphers/{PLAIN_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(original.clone()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let dir = app_dir("patch");
+    let key = login(&dir, &server);
+    let patch = json!({"type":1,"login":{"username":"fixture-updated"}});
+    let encoded = ok(&ow_stdin(
+        &dir,
+        &key,
+        &["encode"],
+        patch.to_string().as_bytes(),
+    ));
+    let mut child = ow_cmd(&dir)
+        .args(["edit", "item", PLAIN_ID])
+        .env("BW_SESSION", &key)
+        .env("OW_PATCH_INPUT", "1")
+        .env("OW_REDACT", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(encoded.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let redacted = json_out(&output);
+    assert!(redacted["login"]["password"].is_null());
+    let requests = server.received_requests().await.unwrap();
+    let request = requests.iter().find(|r| r.method == "PUT").unwrap();
+    let sent: Value = serde_json::from_slice(&request.body).unwrap();
+    assert_eq!(sent["name"], original["name"]);
+    assert_eq!(sent["login"]["password"], original["login"]["password"]);
+    assert_eq!(sent["login"]["uris"], original["login"]["uris"]);
+    assert_ne!(sent["login"]["username"], original["login"]["username"]);
+    let _ = std::fs::remove_dir_all(dir);
+}

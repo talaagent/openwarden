@@ -27,6 +27,8 @@ const LOGIN: u8 = 1;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ItemIn {
+    #[serde(skip)]
+    present: std::collections::BTreeSet<String>,
     #[serde(rename = "type")]
     kind: u8,
     #[serde(default)]
@@ -49,6 +51,8 @@ struct ItemIn {
 
 #[derive(Deserialize)]
 struct LoginIn {
+    #[serde(skip)]
+    present: std::collections::BTreeSet<String>,
     #[serde(default)]
     username: Option<SecretString>,
     #[serde(default)]
@@ -67,7 +71,20 @@ struct UriIn {
     match_type: Option<u8>,
 }
 
+#[derive(Deserialize)]
+#[allow(
+    clippy::zero_sized_map_values,
+    reason = "serde discards secret values while retaining JSON field names"
+)]
+struct Presence {
+    login: Option<std::collections::BTreeMap<String, IgnoredAny>>,
+}
+
 /// Base64 item JSON from stdin (`ow encode`'s output, as `bw` takes it).
+#[allow(
+    clippy::zero_sized_map_values,
+    reason = "discard secret values while reading JSON field names"
+)]
 fn read_item() -> Result<ItemIn> {
     if std::io::stdin().is_terminal() {
         return Err(CliError::Usage(
@@ -85,6 +102,15 @@ fn read_item() -> Result<ItemIn> {
     );
     let mut item: ItemIn =
         serde_json::from_slice(&json).map_err(|err| CliError::json("the item JSON", &err))?;
+    // Inspect field names only; discarded values never become plaintext Strings.
+    let presence: Presence =
+        serde_json::from_slice(&json).map_err(|err| CliError::json("the item JSON", &err))?;
+    let fields: std::collections::BTreeMap<String, IgnoredAny> =
+        serde_json::from_slice(&json).map_err(|err| CliError::json("the item JSON", &err))?;
+    item.present = fields.into_keys().collect();
+    if let Some(login) = &mut item.login {
+        login.present = presence.login.unwrap_or_default().into_keys().collect();
+    }
     if item.organization_id.is_none() {
         item.organization_id = std::env::var("OW_ORGANIZATION_ID")
             .ok()
@@ -202,6 +228,8 @@ fn same(new: Option<&SecretString>, old: Option<&Plain>) -> bool {
 /// What `edit` can change: the name, username, password and TOTP, and new
 /// URIs. Anything else that differs is refused rather than dropped.
 fn diff(item: &ItemIn, current: &ItemOut<'_>) -> Result<LoginUpdate> {
+    let partial = std::env::var("OW_PATCH_INPUT").is_ok_and(|s| s == "1");
+    let present = |key: &str| !partial || item.present.contains(key);
     if item.organization_id.as_deref() != current.organization_id
         || item.collection_ids.as_slice() != current.collection_ids
     {
@@ -212,28 +240,36 @@ fn diff(item: &ItemIn, current: &ItemOut<'_>) -> Result<LoginUpdate> {
     if item.kind != current.kind {
         return Err(CliError::Unsupported("changing an item's type"));
     }
-    if !same(item.notes.as_ref(), current.notes.as_ref()) {
+    if present("notes") && !same(item.notes.as_ref(), current.notes.as_ref()) {
         return Err(CliError::Unsupported("changing notes in `edit`"));
     }
-    if item.folder_id.as_deref() != current.folder_id || item.favorite != current.favorite {
+    if (present("folderId") && item.folder_id.as_deref() != current.folder_id)
+        || (present("favorite") && item.favorite != current.favorite)
+    {
         return Err(CliError::Unsupported(
             "changing the folder or favorite in `edit`",
         ));
     }
-    if item.fields.as_ref().map_or(0, Vec::len) != current.fields.len() {
+    if present("fields") && item.fields.as_ref().map_or(0, Vec::len) != current.fields.len() {
         return Err(CliError::Unsupported("changing custom fields in `edit`"));
     }
     let login = item.login.as_ref();
     let current_login = current.login.as_ref();
-    let changed =
-        |new: Option<&SecretString>, old: Option<&Plain>| -> Result<Option<SecretString>> {
-            match (non_empty(new), non_empty(old.map(|plain| &plain.0))) {
-                (new, old) if new == old => Ok(None),
-                (None, Some(_)) => Err(CliError::Unsupported("clearing a field in `edit`")),
-                (Some(new), _) => Ok(Some(SecretString::from(new))),
-                (None, None) => Ok(None),
-            }
-        };
+    let login_present = |key: &str| !partial || login.is_some_and(|l| l.present.contains(key));
+    let changed = |provided: bool,
+                   new: Option<&SecretString>,
+                   old: Option<&Plain>|
+     -> Result<Option<SecretString>> {
+        if !provided {
+            return Ok(None);
+        }
+        match (non_empty(new), non_empty(old.map(|plain| &plain.0))) {
+            (new, old) if new == old => Ok(None),
+            (None, Some(_)) => Err(CliError::Unsupported("clearing a field in `edit`")),
+            (Some(new), _) => Ok(Some(SecretString::from(new))),
+            (None, None) => Ok(None),
+        }
+    };
     let new_uris = uris(login);
     let old_uris: Vec<&str> = current_login
         .map(|login| {
@@ -244,23 +280,27 @@ fn diff(item: &ItemIn, current: &ItemOut<'_>) -> Result<LoginUpdate> {
                 .collect()
         })
         .unwrap_or_default();
-    if old_uris
-        .iter()
-        .any(|old| !new_uris.iter().any(|(new, _)| new.expose_secret() == *old))
+    if login_present("uris")
+        && old_uris
+            .iter()
+            .any(|old| !new_uris.iter().any(|(new, _)| new.expose_secret() == *old))
     {
         return Err(CliError::Unsupported("removing URIs in `edit`"));
     }
     Ok(LoginUpdate {
-        name: changed(item.name.as_ref(), current.name.as_ref())?,
+        name: changed(present("name"), item.name.as_ref(), current.name.as_ref())?,
         username: changed(
+            login_present("username"),
             login.and_then(|login| login.username.as_ref()),
             current_login.and_then(|login| login.username.as_ref()),
         )?,
         password: changed(
+            login_present("password"),
             login.and_then(|login| login.password.as_ref()),
             current_login.and_then(|login| login.password.as_ref()),
         )?,
         totp: changed(
+            login_present("totp"),
             login.and_then(|login| login.totp.as_ref()),
             current_login.and_then(|login| login.totp.as_ref()),
         )?,
