@@ -392,6 +392,7 @@ fn ow_stdin(dir: &Path, session: &str, args: &[&str], input: &[u8]) -> Output {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn edit_round_trips_and_delete_trashes() {
+    use std::io::Write as _;
     let kat = kat();
     // Login, then the sync after the delete.
     let server = server(&kat, 2).await;
@@ -415,6 +416,33 @@ async fn edit_round_trips_and_delete_trashes() {
         encoded.as_bytes(),
     ));
     assert_eq!(edited["id"], PLAIN_ID);
+
+    // A broker's missing target is refused locally, without an API write.
+    let mut child = ow_cmd(&dir)
+        .args(["create", "item"])
+        .env("BW_SESSION", &key)
+        .env("OW_REQUIRE_TARGET", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(encoded.as_bytes())
+        .unwrap();
+    let refused = child.wait_with_output().unwrap();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("writes require organizationId"));
+    assert_eq!(refused.stdout, [] as [u8; 0]);
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        !requests
+            .iter()
+            .any(|r| r.url.path().starts_with("/api/ciphers"))
+    );
 
     // Changes ow can't make yet are refused, not dropped.
     let mut with_notes: Value = serde_json::from_str(&item).unwrap();
