@@ -299,7 +299,7 @@ struct CipherWire {
     #[serde(default)]
     organization_id: Option<String>,
     #[serde(default)]
-    collection_ids: Vec<String>,
+    collection_ids: Option<Vec<String>>,
     #[serde(default)]
     folder_id: Option<String>,
     #[serde(rename = "type")]
@@ -372,7 +372,7 @@ impl StoredCipher {
         });
         Some(Self {
             organization_id: w.organization_id,
-            collection_ids: w.collection_ids,
+            collection_ids: w.collection_ids.unwrap_or_default(),
             id: CipherId(w.id),
             folder_id: w.folder_id.map(FolderId),
             revision: w.revision_date,
