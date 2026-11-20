@@ -503,17 +503,34 @@ impl Client {
         Ok(())
     }
 
-    pub(crate) async fn post_cipher(
+    pub(crate) async fn post_cipher<T: serde::Serialize + ?Sized>(
         &self,
         session: &Session,
-        body: &serde_json::Value,
+        body: &T,
+        collections: Option<&[String]>,
     ) -> Result<serde_json::Value> {
-        let url = format!("{}/ciphers", self.urls.api);
+        #[derive(serde::Serialize)]
+        #[serde(rename_all = "camelCase")]
+        struct OrganizationCreate<'a, T: ?Sized> {
+            cipher: &'a T,
+            collection_ids: &'a [String],
+        }
+        let endpoint = if collections.is_some() {
+            "ciphers/create"
+        } else {
+            "ciphers"
+        };
         let req = self
             .http
-            .post(url)
-            .bearer_auth(session.access_token.expose_secret())
-            .json(body);
+            .post(format!("{}/{endpoint}", self.urls.api))
+            .bearer_auth(session.access_token.expose_secret());
+        let req = match collections {
+            Some(collection_ids) => req.json(&OrganizationCreate {
+                cipher: body,
+                collection_ids,
+            }),
+            None => req.json(body),
+        };
         self.send("cipher create", req).await
     }
 

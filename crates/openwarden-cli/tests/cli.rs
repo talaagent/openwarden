@@ -392,6 +392,7 @@ fn ow_stdin(dir: &Path, session: &str, args: &[&str], input: &[u8]) -> Output {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn edit_round_trips_and_delete_trashes() {
+    use std::io::Write as _;
     let kat = kat();
     // Login, then the sync after the delete.
     let server = server(&kat, 2).await;
@@ -416,6 +417,33 @@ async fn edit_round_trips_and_delete_trashes() {
     ));
     assert_eq!(edited["id"], PLAIN_ID);
 
+    // A broker's missing target is refused locally, without an API write.
+    let mut child = ow_cmd(&dir)
+        .args(["create", "item"])
+        .env("BW_SESSION", &key)
+        .env("OW_REQUIRE_TARGET", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(encoded.as_bytes())
+        .unwrap();
+    let refused = child.wait_with_output().unwrap();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("writes require organizationId"));
+    assert_eq!(refused.stdout, [] as [u8; 0]);
+    let requests = server.received_requests().await.unwrap();
+    assert!(
+        !requests
+            .iter()
+            .any(|r| r.url.path().starts_with("/api/ciphers"))
+    );
+
     // Changes ow can't make yet are refused, not dropped.
     let mut with_notes: Value = serde_json::from_str(&item).unwrap();
     with_notes["notes"] = json!("a note");
@@ -431,4 +459,125 @@ async fn edit_round_trips_and_delete_trashes() {
 
     ok(&ow(&dir, Some(&key), &["delete", "item", PLAIN_ID]));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn broker_patch_preserves_omitted_secrets_and_metadata() {
+    use std::io::Write as _;
+    let kat = kat();
+    let server = server(&kat, 2).await;
+    let original = sync_json(&kat)["ciphers"][0].clone();
+    Mock::given(method("PUT"))
+        .and(path(format!("/api/ciphers/{PLAIN_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(original.clone()))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let dir = app_dir("patch");
+    let key = login(&dir, &server);
+    let patch = json!({"type":1,"login":{"username":"fixture-updated"}});
+    let encoded = ok(&ow_stdin(
+        &dir,
+        &key,
+        &["encode"],
+        patch.to_string().as_bytes(),
+    ));
+    let mut child = ow_cmd(&dir)
+        .args(["edit", "item", PLAIN_ID])
+        .env("BW_SESSION", &key)
+        .env("OW_PATCH_INPUT", "1")
+        .env("OW_REDACT", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(encoded.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    let redacted = json_out(&output);
+    assert!(redacted["login"]["password"].is_null());
+    let requests = server.received_requests().await.unwrap();
+    let request = requests.iter().find(|r| r.method == "PUT").unwrap();
+    let sent: Value = serde_json::from_slice(&request.body).unwrap();
+    assert_eq!(sent["name"], original["name"]);
+    assert_eq!(sent["login"]["password"], original["login"]["password"]);
+    assert_eq!(sent["login"]["uris"], original["login"]["uris"]);
+    assert_ne!(sent["login"]["username"], original["login"]["username"]);
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn enforced_grant_target_refuses_overrides_and_outside_edits_without_http() {
+    use std::io::Write as _;
+    let server = server(&kat(), 1).await;
+    let dir = app_dir("grant-target");
+    let key = login(&dir, &server);
+    let secret = "fixture-confidential-password";
+    for (org, collections) in [
+        ("other-org", vec!["fixture-collection"]),
+        ("fixture-org", vec!["other-collection"]),
+        (
+            "fixture-org",
+            vec!["fixture-collection", "other-collection"],
+        ),
+        // The target is allowed, but the existing personal item is outside it.
+        ("fixture-org", vec!["fixture-collection"]),
+    ] {
+        for verb in ["create", "edit"] {
+            if verb == "create" && org == "fixture-org" && collections == ["fixture-collection"] {
+                continue;
+            }
+            let item = json!({"type":1,"organizationId":org,"collectionIds":collections,"name":"fixture","login":{"password":secret}});
+            let encoded = ok(&ow_stdin(
+                &dir,
+                &key,
+                &["encode"],
+                item.to_string().as_bytes(),
+            ));
+            let mut command = ow_cmd(&dir);
+            command.args([verb, "item"]);
+            if verb == "edit" {
+                command.arg(PLAIN_ID);
+            }
+            let mut child = command
+                .env("BW_SESSION", &key)
+                .arg("--enforce-target")
+                .env("OW_ORGANIZATION_ID", "fixture-org")
+                .env("OW_COLLECTION_ID", "fixture-collection")
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(encoded.as_bytes())
+                .unwrap();
+            let output = child.wait_with_output().unwrap();
+            assert!(!output.status.success());
+            assert_eq!(output.stdout, [] as [u8; 0]);
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                error.contains("scope") || error.contains("moving an item"),
+                "{error}"
+            );
+            assert!(!error.contains(secret) && !error.contains(&encoded));
+        }
+    }
+    assert!(
+        !server
+            .received_requests()
+            .await
+            .unwrap()
+            .iter()
+            .any(|r| r.url.path().starts_with("/api/ciphers"))
+    );
+    let _ = std::fs::remove_dir_all(dir);
 }

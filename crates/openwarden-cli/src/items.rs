@@ -178,6 +178,7 @@ fn camel(key: &str) -> String {
 }
 
 impl<'k> Decryptor<'k> {
+    #[cfg(test)]
     pub fn new(user: &'k SymmetricKey) -> Self {
         Self {
             user,

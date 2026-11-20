@@ -34,6 +34,11 @@ pub enum KeyChange {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
+    /// A collection is unknown, foreign, or lacks explicit edit permission in sync.
+    #[error(
+        "collection write refused: refresh sync and check organization and collection edit permissions"
+    )]
+    CollectionWriteRefused,
     /// A transport error (connect, TLS, timeout, body read).
     #[cfg(feature = "std")]
     #[error("http error on {endpoint}")]
@@ -45,7 +50,7 @@ pub enum Error {
         source: reqwest::Error,
     },
     /// The server answered with an error status.
-    #[error("{endpoint} returned HTTP {status}{}", oauth_error.as_deref().map(|e| format!(" ({e})")).unwrap_or_default())]
+    #[error("{endpoint} returned HTTP {status}{}{}", oauth_error.as_deref().map(|e| format!(" ({e})")).unwrap_or_default(), if *status == 403 { "; access forbidden: check the account's organization and collection permissions" } else { "" })]
     Status {
         /// Which call failed.
         endpoint: &'static str,

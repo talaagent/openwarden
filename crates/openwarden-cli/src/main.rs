@@ -82,6 +82,9 @@ fn write_object(value: String) -> Result<WriteObject, UnknownValue> {
 #[derive(Debug, Clone, Bpaf)]
 #[allow(clippy::struct_excessive_bools)] // flags
 struct Common {
+    /// Require the configured organization and collection for writes.
+    #[bpaf(long("enforce-target"))]
+    enforce_target: bool,
     /// Indent JSON output.
     #[bpaf(long("pretty"))]
     pretty: bool,

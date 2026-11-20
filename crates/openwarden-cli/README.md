@@ -37,7 +37,7 @@ the command line where `bw` would take them (see below).
 | `list items [--search] [--folderid] [--collectionid] [--organizationid] [--trash]` | yes, personal items only |
 | `list folders [--search]` | yes |
 | `get item\|password\|username\|totp\|notes\|uri ID-OR-SEARCH` | yes |
-| `create item` (base64 JSON on stdin) | logins: name, username, password, TOTP, URIs, folder |
+| `create item` (base64 JSON on stdin) | personal or organization logins: name, username, password, TOTP, URIs, folder, organizationId and collectionIds |
 | `edit item ID` (base64 JSON on stdin) | logins: name, username, password, TOTP, adding URIs |
 | `delete item ID [--permanent]` | yes |
 | `encode` | yes |
@@ -86,3 +86,27 @@ that's already in the trash.
 ## License
 
 Apache-2.0.
+
+For organization writes, `organizationId` and `collectionIds` in the item JSON
+select the target. Edits must keep the existing organization and collections;
+moving an item is refused. Creation uses the organization's key from sync.
+`OW_ORGANIZATION_ID` and `OW_COLLECTION_ID` supply omitted target values for
+brokered runs. With `OW_REQUIRE_TARGET=1`, writes without both an organization
+and at least one collection fail before making an API request. These defaults
+are not access controls: the server account's collection permissions apply.
+HTTP 403 means the account needs the appropriate collection write permission.
+
+With `OW_PATCH_INPUT=1`, edits preserve omitted fields, including existing
+passwords, notes and URI lists. This lets a brokered caller update a field
+without reading the existing secrets. Explicit clearing and unsupported
+changes are still refused; organization and collection targets must match.
+
+`OW_ENFORCE_TARGET=1` turns the two target environment values into a mandatory
+single-collection scope, rather than defaults. Both must be configured. An
+explicit different organization, different collection, or additional collection
+is refused before HTTP, including for edits; the existing item's membership
+must also match. Broker policy must supply these variables, not caller input.
+Organization writes additionally require synced collection metadata identifying
+the same organization and explicitly allowing edits (`readOnly=false` and
+`hidePasswords=false`). Unknown collections, missing permissions, and foreign
+collections fail locally; the server still authorizes every request.

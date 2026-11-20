@@ -30,10 +30,24 @@ struct FolderWire {
     name: String,
 }
 
+/// Collection membership and effective permissions from the account's sync.
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct Collection {
+    pub id: String,
+    pub organization_id: String,
+    #[serde(default)]
+    pub read_only: Option<bool>,
+    #[serde(default)]
+    pub hide_passwords: Option<bool>,
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SyncWire {
     profile: ProfileWire,
+    #[serde(default)]
+    collections: Vec<Collection>,
     #[serde(default)]
     folders: Vec<FolderWire>,
     #[serde(default)]
@@ -43,6 +57,7 @@ struct SyncWire {
 /// A `/api/sync` response, still encrypted: what
 /// [`Vault::apply_sync`](crate::Vault::apply_sync) takes.
 pub struct SyncData {
+    pub(crate) collections: Vec<Collection>,
     pub(crate) user_id: String,
     pub(crate) protected_key: Option<String>,
     pub(crate) private_key: Option<String>,
@@ -81,6 +96,7 @@ impl SyncData {
     pub fn from_json(body: &[u8]) -> Result<Self> {
         let wire: SyncWire = serde_json::from_slice(body).map_err(|e| Error::decode("sync", &e))?;
         Ok(Self {
+            collections: wire.collections,
             user_id: wire.profile.id,
             protected_key: wire.profile.key,
             private_key: wire.profile.private_key,

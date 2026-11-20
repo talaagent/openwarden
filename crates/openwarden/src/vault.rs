@@ -316,6 +316,32 @@ struct CipherWire {
     deleted_date: Option<String>,
 }
 
+#[cfg(feature = "std")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateLoginFields {
+    username: Option<String>,
+    password: Option<String>,
+    totp: Option<String>,
+    uris: Vec<Value>,
+}
+#[cfg(feature = "std")]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateLoginCipher<'a> {
+    #[serde(rename = "type")]
+    kind: u8,
+    folder_id: Option<FolderId>,
+    organization_id: Option<&'a str>,
+    collection_ids: &'a [String],
+    name: String,
+    notes: Option<String>,
+    favorite: bool,
+    reprompt: u8,
+    fields: Vec<String>,
+    password_history: Option<String>,
+    login: CreateLoginFields,
+}
 const LOGIN: u8 = 1;
 
 struct StoredUri {
@@ -440,6 +466,7 @@ const REQUEST_FIELDS: &[&str] = &[
     "type",
     "folderId",
     "organizationId",
+    "collectionIds",
     "name",
     "notes",
     "favorite",
@@ -458,6 +485,7 @@ const REQUEST_FIELDS: &[&str] = &[
 /// The personal vault: the user key (while unlocked), the key state, and
 /// the synced folders and items.
 pub struct Vault {
+    collections: Vec<crate::sync::Collection>,
     key: Option<UserKey>,
     state: KeyState,
     folders: Vec<(FolderId, Option<EncString>)>,
@@ -487,6 +515,7 @@ impl Vault {
             folders: Vec::new(),
             ciphers: Vec::new(),
             organizations: alloc::collections::BTreeMap::new(),
+            collections: Vec::new(),
         }
     }
 
@@ -517,6 +546,7 @@ impl Vault {
     pub fn lock(&mut self) {
         self.key = None;
         self.organizations.clear();
+        self.collections.clear();
     }
 
     /// What the key was unlocked from, to keep beside the sealed key.
@@ -616,6 +646,7 @@ impl Vault {
             &data.organizations,
         )?;
         self.organizations = organizations;
+        self.collections = data.collections;
         self.folders = data.folders;
         self.ciphers = data
             .ciphers
@@ -833,31 +864,93 @@ impl Vault {
         session: &Session,
         draft: LoginDraft,
     ) -> Result<CipherId> {
-        let key = self.user_key()?.symmetric().clone();
+        self.create_login_at(client, session, draft, None, &[])
+            .await
+    }
+
+    /// Creates a login in an organization and its collections, encrypted with
+    /// the organization's key from sync. Unknown organizations fail before HTTP.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Locked`], [`Error::InvalidKey`], and the client's errors.
+    #[cfg(feature = "std")]
+    pub async fn create_organization_login(
+        &mut self,
+        client: &Client,
+        session: &Session,
+        draft: LoginDraft,
+        organization: &str,
+        collections: &[String],
+    ) -> Result<CipherId> {
+        self.create_login_at(client, session, draft, Some(organization), collections)
+            .await
+    }
+
+    #[cfg(feature = "std")]
+    fn check_collections(&self, organization: &str, collections: &[String]) -> Result<()> {
+        if collections.is_empty()
+            || !collections.iter().all(|id| {
+                self.collections.iter().any(|c| {
+                    c.id == *id
+                        && c.organization_id == organization
+                        && c.read_only == Some(false)
+                        && c.hide_passwords == Some(false)
+                })
+            })
+        {
+            return Err(Error::CollectionWriteRefused);
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "std")]
+    async fn create_login_at(
+        &mut self,
+        client: &Client,
+        session: &Session,
+        draft: LoginDraft,
+        organization: Option<&str>,
+        collections: &[String],
+    ) -> Result<CipherId> {
+        self.user_key()?;
+        if let Some(id) = organization {
+            if !self.organizations.contains_key(id) {
+                return Err(Error::InvalidKey);
+            }
+            self.check_collections(id, collections)?;
+        }
+        let key = match organization {
+            Some(id) => self.organizations.get(id).ok_or(Error::InvalidKey)?.clone(),
+            None => self.user_key()?.symmetric().clone(),
+        };
         let enc = |s: &Option<SecretString>| s.as_ref().map(|s| encrypt_str(s, &key)).transpose();
         let uris = draft
             .uris
             .iter()
             .map(|(u, m)| uri_json(u, *m, &key))
             .collect::<Result<Vec<_>>>()?;
-        let body = json!({
-            "type": LOGIN,
-            "folderId": draft.folder_id,
-            "organizationId": null,
-            "name": encrypt_str(&draft.name, &key)?,
-            "notes": null,
-            "favorite": false,
-            "reprompt": 0,
-            "fields": [],
-            "passwordHistory": null,
-            "login": {
-                "username": enc(&draft.username)?,
-                "password": enc(&draft.password)?,
-                "totp": enc(&draft.totp)?,
-                "uris": uris,
+        let body = CreateLoginCipher {
+            kind: LOGIN,
+            folder_id: draft.folder_id,
+            organization_id: organization,
+            collection_ids: collections,
+            name: encrypt_str(&draft.name, &key)?,
+            notes: None,
+            favorite: false,
+            reprompt: 0,
+            fields: Vec::new(),
+            password_history: None,
+            login: CreateLoginFields {
+                username: enc(&draft.username)?,
+                password: enc(&draft.password)?,
+                totp: enc(&draft.totp)?,
+                uris,
             },
-        });
-        let resp = client.post_cipher(session, &body).await?;
+        };
+        let resp = client
+            .post_cipher(session, &body, organization.map(|_| collections))
+            .await?;
         let stored = StoredCipher::parse(resp).ok_or(Error::Decode {
             endpoint: "cipher create",
             line: 0,
@@ -947,6 +1040,9 @@ impl Vault {
         confirmed: Option<ConfirmedItem>,
     ) -> Result<Value> {
         let c = self.cipher(id)?;
+        if let Some(org) = &c.organization_id {
+            self.check_collections(org, &c.collection_ids)?;
+        }
         let login = c.login()?;
         let key = c.item_key(self.cipher_key(c)?)?;
         // Every change to an existing item needs the user's confirmation:
@@ -1051,6 +1147,170 @@ fn rfc3339(secs: u64, millis: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "std")]
+    #[tokio::test]
+    #[allow(clippy::disallowed_methods, clippy::too_many_lines)]
+    async fn organization_login_writes_use_the_organization_key() {
+        use wiremock::{
+            Mock, MockServer, ResponseTemplate,
+            matchers::{method, path},
+        };
+        let server = MockServer::start().await;
+        let user = SymmetricKey::generate().unwrap();
+        let organization = SymmetricKey::generate().unwrap();
+        let mut vault = Vault::open(
+            UserKey::from_bytes(user.to_bytes().as_ref()).unwrap(),
+            KeyState {
+                protected_key: String::new(),
+                kdf: None,
+            },
+        );
+        vault
+            .organizations
+            .insert("fixture-org".into(), organization.clone());
+        vault.collections = SyncData::from_json(br#"{
+            "profile":{"id":"fixture-user"}, "collections":[
+                {"id":"fixture-collection","organizationId":"fixture-org","readOnly":false,"hidePasswords":false},
+                {"id":"foreign","organizationId":"other-org","readOnly":false,"hidePasswords":false},
+                {"id":"readonly","organizationId":"fixture-org","readOnly":true,"hidePasswords":false},
+                {"id":"unknown-permission","organizationId":"fixture-org"}
+            ]
+        }"#).unwrap().collections;
+        vault
+            .organizations
+            .insert("other-org".into(), SymmetricKey::generate().unwrap());
+        let cipher = json!({
+            "id": "fixture-item", "type": 1, "organizationId": "fixture-org",
+            "collectionIds": ["fixture-collection"],
+            "name": EncString::encrypt(&organization, b"fixture-name").unwrap(),
+            "login": {"password": EncString::encrypt(&organization, b"fixture-password").unwrap()}
+        });
+        Mock::given(method("POST"))
+            .and(path("/api/ciphers/create"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(cipher.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PUT"))
+            .and(path("/api/ciphers/fixture-item"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(cipher))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = Client::new(
+            crate::ServerUrls::self_hosted(&server.uri()).unwrap(),
+            crate::Device {
+                identifier: "fixture-device".into(),
+                name: "fixture".into(),
+                device_type: crate::Device::LINUX_CLI,
+            },
+        )
+        .unwrap();
+        let session = Session::from_token(
+            SecretString::from("fixture-token"),
+            core::time::Duration::from_secs(60),
+        )
+        .unwrap();
+        let draft = || LoginDraft {
+            name: SecretString::from("fixture-name"),
+            username: None,
+            password: Some(SecretString::from("fixture-password")),
+            totp: None,
+            uris: Vec::new(),
+            folder_id: None,
+        };
+        assert!(matches!(
+            vault
+                .create_organization_login(&client, &session, draft(), "unknown", &[])
+                .await,
+            Err(Error::InvalidKey)
+        ));
+        for ids in [
+            alloc::vec![],
+            alloc::vec!["missing".into()],
+            alloc::vec!["foreign".into()],
+            alloc::vec!["readonly".into()],
+            alloc::vec!["unknown-permission".into()],
+            alloc::vec!["fixture-collection".into(), "foreign".into()],
+        ] {
+            assert!(matches!(
+                vault
+                    .create_organization_login(&client, &session, draft(), "fixture-org", &ids)
+                    .await,
+                Err(Error::CollectionWriteRefused)
+            ));
+        }
+        assert_eq!(server.received_requests().await.unwrap().len(), 0);
+        let id = vault
+            .create_organization_login(
+                &client,
+                &session,
+                draft(),
+                "fixture-org",
+                &["fixture-collection".into()],
+            )
+            .await
+            .unwrap();
+        vault.collections[0].read_only = Some(true);
+        assert!(matches!(
+            vault
+                .update_login(
+                    &client,
+                    &session,
+                    &id,
+                    LoginUpdate::default(),
+                    Some(vault.confirm_item(&id).unwrap())
+                )
+                .await,
+            Err(Error::CollectionWriteRefused)
+        ));
+        assert_eq!(server.received_requests().await.unwrap().len(), 1);
+        vault.collections[0].read_only = Some(false);
+        let confirmation = vault.confirm_item(&id).unwrap();
+        vault
+            .update_login(
+                &client,
+                &session,
+                &id,
+                LoginUpdate {
+                    password: Some(SecretString::from("fixture-new-password")),
+                    ..LoginUpdate::default()
+                },
+                Some(confirmation),
+            )
+            .await
+            .unwrap();
+        let requests = server.received_requests().await.unwrap();
+        assert_eq!(requests.len(), 2);
+        let create: Value = serde_json::from_slice(&requests[0].body).unwrap();
+        assert_eq!(create["collectionIds"], json!(["fixture-collection"]));
+        assert_eq!(create["cipher"]["organizationId"], "fixture-org");
+        let encrypted: EncString = create["cipher"]["login"]["password"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(
+            encrypted
+                .decrypt_string(&organization)
+                .unwrap()
+                .expose_secret(),
+            "fixture-password"
+        );
+        assert!(encrypted.decrypt_string(&user).is_err());
+        let edit: Value = serde_json::from_slice(&requests[1].body).unwrap();
+        assert_eq!(edit["organizationId"], "fixture-org");
+        assert_eq!(edit["collectionIds"], json!(["fixture-collection"]));
+        let encrypted: EncString = edit["login"]["password"].as_str().unwrap().parse().unwrap();
+        assert_eq!(
+            encrypted
+                .decrypt_string(&organization)
+                .unwrap()
+                .expose_secret(),
+            "fixture-new-password"
+        );
+    }
 
     #[test]
     fn mixed_organization_sync_roundtrip() {

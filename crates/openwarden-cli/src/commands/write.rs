@@ -27,6 +27,8 @@ const LOGIN: u8 = 1;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ItemIn {
+    #[serde(skip)]
+    present: std::collections::BTreeSet<String>,
     #[serde(rename = "type")]
     kind: u8,
     #[serde(default)]
@@ -38,6 +40,8 @@ struct ItemIn {
     #[serde(default)]
     organization_id: Option<String>,
     #[serde(default)]
+    collection_ids: Vec<String>,
+    #[serde(default)]
     favorite: bool,
     #[serde(default)]
     login: Option<LoginIn>,
@@ -47,6 +51,8 @@ struct ItemIn {
 
 #[derive(Deserialize)]
 struct LoginIn {
+    #[serde(skip)]
+    present: std::collections::BTreeSet<String>,
     #[serde(default)]
     username: Option<SecretString>,
     #[serde(default)]
@@ -65,8 +71,21 @@ struct UriIn {
     match_type: Option<u8>,
 }
 
+#[derive(Deserialize)]
+#[allow(
+    clippy::zero_sized_map_values,
+    reason = "serde discards secret values while retaining JSON field names"
+)]
+struct Presence {
+    login: Option<std::collections::BTreeMap<String, IgnoredAny>>,
+}
+
 /// Base64 item JSON from stdin (`ow encode`'s output, as `bw` takes it).
-fn read_item() -> Result<ItemIn> {
+#[allow(
+    clippy::zero_sized_map_values,
+    reason = "discard secret values while reading JSON field names"
+)]
+fn read_item(common: &Common) -> Result<ItemIn> {
     if std::io::stdin().is_terminal() {
         return Err(CliError::Usage(
             "pipe the item's base64 JSON (`ow encode`) on stdin",
@@ -81,13 +100,58 @@ fn read_item() -> Result<ItemIn> {
         B64.decode(compact.as_bytes())
             .map_err(|_| CliError::Base64)?,
     );
-    let item: ItemIn =
+    let mut item: ItemIn =
         serde_json::from_slice(&json).map_err(|err| CliError::json("the item JSON", &err))?;
+    // Inspect field names only; discarded values never become plaintext Strings.
+    let presence: Presence =
+        serde_json::from_slice(&json).map_err(|err| CliError::json("the item JSON", &err))?;
+    let fields: std::collections::BTreeMap<String, IgnoredAny> =
+        serde_json::from_slice(&json).map_err(|err| CliError::json("the item JSON", &err))?;
+    item.present = fields.into_keys().collect();
+    if let Some(login) = &mut item.login {
+        login.present = presence.login.unwrap_or_default().into_keys().collect();
+    }
+    if item.organization_id.is_none() {
+        item.organization_id = std::env::var("OW_ORGANIZATION_ID")
+            .ok()
+            .filter(|s| !s.is_empty());
+    }
+    if item.collection_ids.is_empty()
+        && let Ok(collection) = std::env::var("OW_COLLECTION_ID")
+        && !collection.is_empty()
+    {
+        item.collection_ids.push(collection);
+    }
+    if std::env::var("OW_REQUIRE_TARGET").is_ok_and(|s| s == "1")
+        && (item.organization_id.is_none() || item.collection_ids.is_empty())
+    {
+        return Err(CliError::Usage(
+            "writes require organizationId and collectionIds, or OW_ORGANIZATION_ID and OW_COLLECTION_ID defaults",
+        ));
+    }
+    if common.enforce_target || std::env::var("OW_ENFORCE_TARGET").is_ok_and(|s| s == "1") {
+        let org = std::env::var("OW_ORGANIZATION_ID")
+            .ok()
+            .filter(|s| !s.is_empty());
+        let collection = std::env::var("OW_COLLECTION_ID")
+            .ok()
+            .filter(|s| !s.is_empty());
+        if org.is_none()
+            || collection.is_none()
+            || item.organization_id != org
+            || item.collection_ids.len() != 1
+            || item.collection_ids.first() != collection.as_ref()
+        {
+            return Err(CliError::Usage(
+                "write target is outside the configured grant scope",
+            ));
+        }
+    }
     if item.kind != LOGIN {
         return Err(CliError::Unsupported("items other than logins"));
     }
-    if item.organization_id.is_some() {
-        return Err(CliError::Unsupported("organization items"));
+    if item.organization_id.is_none() && !item.collection_ids.is_empty() {
+        return Err(CliError::Usage("collections require an organizationId"));
     }
     Ok(item)
 }
@@ -131,7 +195,7 @@ fn open_vault(ctx: &Ctx, keys: &Keys) -> Result<Vault> {
 /// `create item`: a login, from base64 JSON on stdin.
 pub async fn create(ctx: &mut Ctx, common: &Common) -> Result<()> {
     let keys = ctx.keys()?;
-    let item = read_item()?;
+    let item = read_item(common)?;
     if non_empty(item.notes.as_ref()).is_some() {
         return Err(CliError::Unsupported("notes in `create`"));
     }
@@ -164,7 +228,13 @@ pub async fn create(ctx: &mut Ctx, common: &Common) -> Result<()> {
     let client = ctx.client()?;
     let session = ctx.session(&client, &keys).await?;
     let mut vault = open_vault(ctx, &keys)?;
-    let id = vault.create_login(&client, &session, draft).await?;
+    let id = if let Some(organization) = &item.organization_id {
+        vault
+            .create_organization_login(&client, &session, draft, organization, &item.collection_ids)
+            .await?
+    } else {
+        vault.create_login(&client, &session, draft).await?
+    };
     ctx.sync(&client, &keys, &session, true).await?;
     print_item(ctx, &keys, GetObject::Item, id.as_str(), common)
 }
@@ -176,31 +246,48 @@ fn same(new: Option<&SecretString>, old: Option<&Plain>) -> bool {
 /// What `edit` can change: the name, username, password and TOTP, and new
 /// URIs. Anything else that differs is refused rather than dropped.
 fn diff(item: &ItemIn, current: &ItemOut<'_>) -> Result<LoginUpdate> {
+    let partial = std::env::var("OW_PATCH_INPUT").is_ok_and(|s| s == "1");
+    let present = |key: &str| !partial || item.present.contains(key);
+    if item.organization_id.as_deref() != current.organization_id
+        || item.collection_ids.as_slice() != current.collection_ids
+    {
+        return Err(CliError::Unsupported(
+            "moving an item between organizations or collections",
+        ));
+    }
     if item.kind != current.kind {
         return Err(CliError::Unsupported("changing an item's type"));
     }
-    if !same(item.notes.as_ref(), current.notes.as_ref()) {
+    if present("notes") && !same(item.notes.as_ref(), current.notes.as_ref()) {
         return Err(CliError::Unsupported("changing notes in `edit`"));
     }
-    if item.folder_id.as_deref() != current.folder_id || item.favorite != current.favorite {
+    if (present("folderId") && item.folder_id.as_deref() != current.folder_id)
+        || (present("favorite") && item.favorite != current.favorite)
+    {
         return Err(CliError::Unsupported(
             "changing the folder or favorite in `edit`",
         ));
     }
-    if item.fields.as_ref().map_or(0, Vec::len) != current.fields.len() {
+    if present("fields") && item.fields.as_ref().map_or(0, Vec::len) != current.fields.len() {
         return Err(CliError::Unsupported("changing custom fields in `edit`"));
     }
     let login = item.login.as_ref();
     let current_login = current.login.as_ref();
-    let changed =
-        |new: Option<&SecretString>, old: Option<&Plain>| -> Result<Option<SecretString>> {
-            match (non_empty(new), non_empty(old.map(|plain| &plain.0))) {
-                (new, old) if new == old => Ok(None),
-                (None, Some(_)) => Err(CliError::Unsupported("clearing a field in `edit`")),
-                (Some(new), _) => Ok(Some(SecretString::from(new))),
-                (None, None) => Ok(None),
-            }
-        };
+    let login_present = |key: &str| !partial || login.is_some_and(|l| l.present.contains(key));
+    let changed = |provided: bool,
+                   new: Option<&SecretString>,
+                   old: Option<&Plain>|
+     -> Result<Option<SecretString>> {
+        if !provided {
+            return Ok(None);
+        }
+        match (non_empty(new), non_empty(old.map(|plain| &plain.0))) {
+            (new, old) if new == old => Ok(None),
+            (None, Some(_)) => Err(CliError::Unsupported("clearing a field in `edit`")),
+            (Some(new), _) => Ok(Some(SecretString::from(new))),
+            (None, None) => Ok(None),
+        }
+    };
     let new_uris = uris(login);
     let old_uris: Vec<&str> = current_login
         .map(|login| {
@@ -211,23 +298,27 @@ fn diff(item: &ItemIn, current: &ItemOut<'_>) -> Result<LoginUpdate> {
                 .collect()
         })
         .unwrap_or_default();
-    if old_uris
-        .iter()
-        .any(|old| !new_uris.iter().any(|(new, _)| new.expose_secret() == *old))
+    if login_present("uris")
+        && old_uris
+            .iter()
+            .any(|old| !new_uris.iter().any(|(new, _)| new.expose_secret() == *old))
     {
         return Err(CliError::Unsupported("removing URIs in `edit`"));
     }
     Ok(LoginUpdate {
-        name: changed(item.name.as_ref(), current.name.as_ref())?,
+        name: changed(present("name"), item.name.as_ref(), current.name.as_ref())?,
         username: changed(
+            login_present("username"),
             login.and_then(|login| login.username.as_ref()),
             current_login.and_then(|login| login.username.as_ref()),
         )?,
         password: changed(
+            login_present("password"),
             login.and_then(|login| login.password.as_ref()),
             current_login.and_then(|login| login.password.as_ref()),
         )?,
         totp: changed(
+            login_present("totp"),
             login.and_then(|login| login.totp.as_ref()),
             current_login.and_then(|login| login.totp.as_ref()),
         )?,
@@ -249,7 +340,7 @@ fn is_empty(update: &LoginUpdate) -> bool {
 /// `edit item ID`: from base64 JSON on stdin.
 pub async fn edit(ctx: &mut Ctx, id: &str, common: &Common) -> Result<()> {
     let keys = ctx.keys()?;
-    let item = read_item()?;
+    let item = read_item(common)?;
     let update = {
         let body = ctx.vault_body(&keys)?;
         let sync = super::parse_sync(&body)?;
@@ -258,7 +349,7 @@ pub async fn edit(ctx: &mut Ctx, id: &str, common: &Common) -> Result<()> {
             .into_iter()
             .find(|cipher| cipher.id.eq_ignore_ascii_case(id))
             .ok_or(CliError::NotFound)?;
-        let current = Decryptor::new(&keys.user).item(cipher)?;
+        let current = Decryptor::with_sync(&keys.user, &sync)?.item(cipher)?;
         diff(&item, &current)?
     };
     if !is_empty(&update) {
