@@ -60,6 +60,9 @@
             ];
           };
           cargoLock.lockFile = ./Cargo.lock;
+          # aws-lc-sys: nixpkgs' cargo hook sets AWS_LC_SYS_USE_SYSTEM=1 (NixOS/nixpkgs#570938).
+          nativeBuildInputs = [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.aws-lc ];
           # The tests build real HTTP clients (against a local mock
           # server); rustls' platform verifier wants a CA store to exist.
           SSL_CERT_FILE = "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt";
