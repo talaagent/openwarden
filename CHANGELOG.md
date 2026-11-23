@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/talaagent/openwarden/compare/v0.1.1...v0.2.0) - 2026-11-23
+
+### Added
+
+- support organization vault items in openwarden and ow ([#14](https://github.com/talaagent/openwarden/pull/14))
+
+### Other
+
+- Support organization login writes and collection targets ([#16](https://github.com/talaagent/openwarden/pull/16))
+
 ## [0.1.1](https://github.com/talaagent/openwarden/compare/v0.1.0...v0.1.1) - 2026-11-18
 
 ### Added
